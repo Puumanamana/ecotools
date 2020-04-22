@@ -1,6 +1,5 @@
 from itertools import product
 
-import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 
@@ -9,27 +8,23 @@ from bokeh.plotting import figure
 from bokeh.layouts import gridplot
 from bokeh.palettes import Category10
 
-from load_and_convert import load_h5, parse_config
+from ecotools.util import group_by_rank
 
 TOOLS = ['hover', 'box_zoom']
-
 DIV_ID = ['sobs', 'shannoneven']
-# COVARS = [clean_name(x) for x in ['pH', 'Potassium', 'Sulfate', 'Sodium', 'Magnesium', 'Chloride', 'Calcium', 'Temp (C)', 'DO (mg/L)', 'Si', 'Sr', 'Sp. Cond. (uS/cm)']]
-# VARS = DIV_ID + COVARS
 
 def pairwise_scatter(shared, tax, alphaD, meta, factor='Aquifer', fig_dir=None):
 
-    # meta[COVARS] = meta[COVARS].astype(float)
-    chem_cols = meta.columns[meta.dtypes=='float']
-    chem_cols = np.setdiff1d(chem_cols, DIV_ID)
+    meta_quant = meta.select_dtypes(include='number')
+    quant_counts = meta_quant.count().sort_values(ascending=False)
+    
+    meta[meta_quant.columns] = (meta_quant - meta_quant.mean()) / meta_quant.std()
 
-    meta[chem_cols] = (meta[chem_cols] - meta[chem_cols].mean()) / meta[chem_cols].std()
-
-    data = shared.T.groupby(tax.Genus).agg(sum).T
+    (data, tax) = group_by_rank(shared, tax, 'Genus')
     data = pd.concat([data, meta, alphaD.astype(float)], axis=1)
     data = data[~meta[factor].isnull()].reset_index()
 
-    covars = chem_cols + DIV_ID
+    covars = DIV_ID + quant_counts.index.tolist()[:20]
 
     tooltips = [
         ('Sample', '@index (@Site, @Year, @Month)'),
@@ -68,6 +63,10 @@ def pairwise_scatter(shared, tax, alphaD, meta, factor='Aquifer', fig_dir=None):
         df = data.loc[~data[[c1, c2]].duplicated(), info_cols+[c1, c2]].dropna(how='any')
         df.loc[:, 'color'] = [colormap[st] for i, st in enumerate(df[factor])]
 
+        if df.shape[0] < 5:
+            plots.append(None)
+            continue
+
         corr = '{:.2f}'.format(pearsonr(df[c1], df[c2])[0])
 
         p = figure(title=f"{c1} vs {c2} (corr={corr})", tooltips=tooltips, tools=TOOLS,
@@ -79,13 +78,3 @@ def pairwise_scatter(shared, tax, alphaD, meta, factor='Aquifer', fig_dir=None):
     grid = gridplot(plots, ncols=len(covars), plot_width=300+leg_space, plot_height=300)
     output_file(f"{fig_dir}/covariates_correlation_by-{factor}.html")
     save(grid)
-
-if __name__ == '__main__':
-    cfg = parse_config()
-    
-    (shared, taxonomy, alpha_div, metadata) = load_h5(cfg.get('misc', 'h5'))
-    
-    print('Data loaded')
-
-    pairwise_scatter(shared, taxonomy, alpha_div, metadata, factor='Flowpath', fig_dir=cfg.get('misc', 'fig_dir'))
-    pairwise_scatter(shared, taxonomy, alpha_div, metadata, factor='Aquifer', fig_dir=cfg.get('misc', 'fig_dir'))

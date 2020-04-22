@@ -1,0 +1,3 @@
+[console_scripts]
+ecotools = ecotools.main:main
+

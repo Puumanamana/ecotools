@@ -5,7 +5,8 @@ from scipy.stats import pearsonr
 
 import matplotlib.pyplot as plt
 
-from load_and_convert import load_h5, parse_config
+from ecotools.load_and_convert import load_h5, parse_config
+from ecotools.util import group_by_rank
 
 TOOLS = ['hover', 'box_zoom', 'reset']
 OUTDIR = '../outputs'
@@ -24,7 +25,7 @@ def get_correlated_otus(shared, tax, chem, top=4):
 
     for lvl in tax.columns:
         print("Processing", lvl)
-        X[lvl] = shared.T.groupby(tax[lvl]).agg(sum)
+        X[lvl] = group_by_rank(shared, tax, lvl)[0]
 
         for i, otu in enumerate(X[lvl].index):
             otu_abd = X[lvl].loc[otu]
@@ -36,11 +37,9 @@ def get_correlated_otus(shared, tax, chem, top=4):
             corrs.append([otu, score, lvl, abs(score)])
 
     corrs = pd.DataFrame(corrs, columns=['name', 'score', 'level', 'abs_score'])
-    corrs = (corrs
-             .groupby('level')
+    corrs = (corrs.groupby('level')
              .apply(lambda x: x.nlargest(top, 'abs_score'))
              .drop(['abs_score', 'level'], axis=1))
-
     print(corrs)
 
     fig, ax = plt.subplots(top, tax.shape[1], figsize=(20, 15))

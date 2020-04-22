@@ -1,0 +1,21 @@
+Metadata-Version: 1.2
+Name: ecotools
+Version: 0.0
+Summary: Tool for ecological data visualization and analysis
+Home-page: https://github.com/Puumanamana/ecotools
+License: Apache License 2.0
+Description: Ecological data visualization
+        =============================
+        
+        Usage
+        -----
+        
+        Contribute
+        ----------
+        
+        - Issue Tracker: `github <https://github.com/Puumanamana/ecotools/issues>`_
+        - Source Code: `github <https://github.com/Puumanamana/ecotools>`_
+        
+        
+Platform: UNKNOWN
+Requires-Python: >=3.6

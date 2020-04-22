@@ -4,13 +4,11 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import pairwise_distances
 
+from bokeh.plotting import figure
 from bokeh.io import save, output_file
 from bokeh.palettes import inferno, Category10
 from bokeh.layouts import gridplot
-
-from load_and_convert import load_h5, parse_config
-from factors_vs_chemistry import boxplot_single
-from factors_vs_16S import parse_args
+from bokeh.transform import jitter
 
 def calc_dist_matrix(shared, metric='braycurtis'):
     dist = pairwise_distances(shared, metric=metric, n_jobs=-1)
@@ -23,9 +21,7 @@ def wisconsin(df):
 
     return df.T
 
-def get_normalized_distances(h5_path, factor):
-    (shared, _, _, metadata) = load_h5(h5_path)
-
+def get_normalized_distances(shared, metadata, factor):
     print('Normalization')
     shared_norm = wisconsin(np.sqrt(shared))
     print('Distance matrix')
@@ -43,37 +39,7 @@ def get_normalized_distances(h5_path, factor):
 
     return distances
 
-def boxplot_with_factor(distances, factor='Aquifer', fig_dir=None):
-
-    distances[factor] = [g1 if g1==g2 else 'noise'
-                         for (g1, g2) in distances[['g1', 'g2']].to_numpy()]
-
-    distance_per_group = (
-        distances
-        .groupby(factor)
-        .describe()[0]
-        .reset_index()
-        .rename(columns={'25%': 'q1', '50%': 'q2', '75%': 'q3', 'index': factor})
-    )
-
-    if len(distance_per_group) > 11:
-        colors = inferno(n=len(distance_per_group))
-    else:
-        colors = Category10[len(distance_per_group)]
-
-    cmap = {f: colors[i] for (i, f) in enumerate(distance_per_group[factor])}
-
-    p = boxplot_single(distance_per_group, cmap, factor, 'distance')
-    p.xaxis.axis_label = factor
-    p.yaxis.axis_label = 'Distribution of braycurtis distances'
-
-    output_file(f"{fig_dir}/distances_distr_by-{factor}.html")
-    save(p)
-
-
 def boxplot_with_factor_pairwise(distances, factor='Aquifer', fig_dir=None):
-    # distances[factor] = [g1 if g1==g2 else '{}_vs_{}'.format(*sorted([g1, g2]))
-    #                      for (g1, g2) in distances[['g1', 'g2']].to_numpy()]
 
     plots = []
     for l1, l2 in product(sorted(set(distances.g1)), repeat=2):
@@ -118,12 +84,50 @@ def boxplot_with_factor_pairwise(distances, factor='Aquifer', fig_dir=None):
 
     return
 
-if __name__ == '__main__':
-    cfg = parse_config()
-    args = parse_args()
 
-    fig_dir = cfg.get('misc', 'fig_dir')
+def boxplot_single(info, cmap, col1, col2=None, scatter_data=None):
 
-    distances = get_normalized_distances(cfg.get('misc', 'h5'), args.factor)
-    boxplot_with_factor(distances, args.factor, fig_dir=fig_dir)
-    boxplot_with_factor_pairwise(distances, args.factor, fig_dir=fig_dir)
+    info['IQR'] = info.q3 - info.q1
+
+    info['upper'] = np.min([info['max'], info.q3 + 1.5*info.IQR], axis=0)
+    info['lower'] = np.max([info['min'], info.q1 - 1.5*info.IQR], axis=0)
+
+    info['color'] = [cmap[f] for f in info[col1]]
+
+    tooltips = []
+    if scatter_data is not None:
+        tooltips = scatter_data.drop(['y', col1], axis=1).columns
+        tooltips = zip(tooltips, '@'+tooltips)
+    
+    p = figure(title=f"{col2} vs {col1}",
+               background_fill_color="#efefef",
+               plot_width=300, plot_height=400,
+               tooltips=list(tooltips),
+               x_range=info[col1].tolist())
+
+    # stems
+    p.segment(col1, 'upper', col1, 'q3', line_color="black", source=info)
+    p.segment(col1, 'lower', col1, 'q1', line_color="black", source=info)
+
+    # boxes
+    p.vbar(x=col1, width=0.7, bottom='q2', top='q3',
+           line_color="black", color='color', source=info)
+    p.vbar(x=col1, width=0.7, bottom='q1', top='q2',
+           line_color="black", color='color', source=info)
+
+    if scatter_data is not None:
+        scatter_data = scatter_data.sample(frac=1).groupby(col1).head(500)
+        scatter_data['color'] = [cmap[x] for x in scatter_data[col1]]
+
+        p.circle(x=jitter(col1, 0.2, range=p.x_range), y='y',
+                 line_color='black', fill_color='color', alpha=0.5,
+                 source=scatter_data)
+
+    # # whiskers (almost-0 height rects simpler than segments)
+    # h = np.abs(info.q3).mean()
+    # p.rect(x=col1, y='lower', width=0.2, height=0.01*h, color="black", source=info)
+    # p.rect(x=col1, y='upper', width=0.2, height=0.01*h, color="black", source=info)
+
+    p.xaxis.major_label_orientation = "vertical"
+
+    return p

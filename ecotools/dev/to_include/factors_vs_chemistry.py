@@ -14,9 +14,6 @@ from bokeh.palettes import inferno, Category10
 from bokeh.models import ColumnDataSource, Arrow, NormalHead, LabelSet
 from bokeh.transform import jitter
 
-from load_and_convert import load_meta, parse_config
-from factors_vs_16S import parse_args
-
 def boxplot_single(info, cmap, col1, col2=None, scatter_data=None):
 
     info['IQR'] = info.q3 - info.q1
@@ -180,15 +177,3 @@ def bokeh_decomp(chem, factor, fig_dir=None):
     # apply_decomp('LDA', chem.loc[idx, cols], factor.loc[idx], fig_dir=fig_dir)
     apply_decomp('PCA', chem.loc[idx, cols], factor.loc[idx], fig_dir=fig_dir)
 
-if __name__ == '__main__':
-    cfg = parse_config()
-    args = parse_args()
-    fig_dir = cfg.get('misc', 'fig_dir')
-
-    meta = load_meta(cfg)
-    meta = meta[~meta[args.factor].isnull()]
-    chem = meta.select_dtypes(['number']).drop('Year', axis=1)
-    meta.drop(chem.columns, axis=1, inplace=True)
-
-    bokeh_decomp(chem, meta[args.factor], fig_dir)
-    bokeh_variation_with_factor(chem, meta, args.factor, fig_dir)

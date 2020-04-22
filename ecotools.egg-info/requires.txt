@@ -1,0 +1,9 @@
+numpy
+pandas
+h5py
+argparse
+bokeh>=1.4
+scipy
+scikit-learn
+rpy2
+tzlocal

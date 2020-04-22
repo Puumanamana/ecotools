@@ -11,8 +11,8 @@ from bokeh.models import FactorRange, Band, ColumnDataSource
 from bokeh.transform import factor_cmap
 from bokeh.palettes import Dark2, Accent, Category10
 
-from load_and_convert import parse_config
-from factors_vs_16S import parse_args
+from ecotools.load_and_convert import parse_config
+from ecotools.factors_vs_16S import parse_args
 
 def load_results(folder, factor):
     data = []
