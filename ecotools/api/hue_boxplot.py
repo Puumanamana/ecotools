@@ -5,7 +5,7 @@ from bokeh.plotting import figure
 from bokeh.transform import dodge
 from bokeh.models import HoverTool
 
-from util import bokeh_save, bokeh_legend_out, get_palette, TOOLS
+from ecotools.api.util import bokeh_save, bokeh_legend_out, get_palette, TOOLS
 
 @bokeh_save
 @bokeh_legend_out

@@ -1,6 +1,5 @@
 import sys
 import numpy as np
-import pandas as pd
 
 from bokeh.plotting import figure
 from bokeh.transform import jitter

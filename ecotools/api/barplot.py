@@ -1,6 +1,7 @@
 from bokeh.plotting import figure
 
-from util import bokeh_legend_out, bokeh_save, get_palette, TOOLS
+from ecotools.api.util import bokeh_legend_out, bokeh_save, get_palette
+from ecotools.api.util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_legend_out
@@ -9,20 +10,25 @@ def taxa_barplot(metagenome, output=None, factor=None, taxa_file=None, norm=Fals
     metagenome = metagenome.copy()
     metagenome.preprocess(factor=factor, taxa_file=taxa_file, norm=norm, rank=rank, top=top)
 
-    padding = 200
-    width = padding + max(800, metagenome.n_samples()*100)
-    height = 500 + padding
+    # Discard OTU with a min relative abundance below 0.1%
+    main_otus = metagenome.abundance.get_most_abundant_otus(thresh=0.001)
+    data = metagenome.abundance.data[main_otus]
 
-    palette = get_palette(metagenome.n_otus())
+    data.columns = (data.columns
+                    .str.replace('[/\-]', '_')
+                    .str.replace('(\(.*\))', '')
+                    .str.slice(stop=100))
 
-    data = metagenome.abundance.data
-    data.columns = data.columns.str.replace('/', '_').str.slice(stop=100)
-
-    tooltips = zip(data.columns, '@'+data.columns+'{0.00%}'*norm)
+    tooltips = zip(data.columns, '@'+data.columns+'{0.0%}'*norm)
 
     factors = data.index.tolist()
     if all(f.isdigit() for f in factors):
         factors = sorted(factors, key=int)
+
+    width = max(800, metagenome.n_samples()*150) + PADDING
+    height = 600 + PADDING
+
+    palette = get_palette(data.shape[1])
 
     p = figure(plot_height=height, width=width, min_border=padding,
                x_range=factors,
@@ -30,7 +36,7 @@ def taxa_barplot(metagenome, output=None, factor=None, taxa_file=None, norm=Fals
                title=output.stem)
 
     p.vbar_stack(data.columns, x=data.index.name, source=data.reset_index(),
-                 width=.3, color=palette[:metagenome.n_otus()],
+                 width=.6, color=palette[:metagenome.n_otus()],
                  legend_label=data.columns.tolist())
 
     p.xaxis.major_label_orientation = 'vertical'

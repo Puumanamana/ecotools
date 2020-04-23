@@ -37,6 +37,10 @@ class Data:
             return False
         return True
 
+    def to_csv(self, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.data.to_csv(path)
+
 class MetadataTable(Data):
     def __init__(self, *qual_vars, **kwargs):
         Data.__init__(self, **kwargs)
@@ -212,6 +216,12 @@ class AbundanceTable(Data):
 
     def normalize(self):
         self.data = ((self.data.T) / self.raw_sample_sizes.loc[self.data.index]).T
+
+    def get_most_abundant_otus(self, thresh=0.01):
+        proportions = (self.data / self.data.sum()).min()
+        main_otus = proportions.index[proportions > thresh]
+
+        return main_otus
 
     def calc_diversity(self):
 

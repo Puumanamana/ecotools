@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable
+from ecotools.api.base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable
 
 def elt_or_nothing(l):
     if len(set(l)) == 1:
@@ -22,6 +22,7 @@ class MetagenomicDS:
             fasta_path='',
             meta_path='', qual_vars=None
     ):
+        self.outdir = Path(outdir)
         self.h5 = Path(outdir, ds+'.h5')
         self.figdir = Path(outdir, 'figures')
         
@@ -29,7 +30,7 @@ class MetagenomicDS:
         self.taxonomy = TaxonomyTable(path=tax_path, species_path=species_path, ds=ds, outdir=outdir)
         self.metadata = MetadataTable(*qual_vars, path=meta_path, ds=ds, outdir=outdir)
         self.unify()
-        self.figdir.mkdir(exist_ok=True)
+        self.figdir.mkdir(parents=True, exist_ok=True)
 
     def __repr__(self):
         return '\n'.join(
@@ -70,6 +71,12 @@ class MetagenomicDS:
         self.abundance.to_h5()
         self.taxonomy.to_h5()
         self.metadata.to_h5()
+
+    def to_csv(self):
+        self.unify()
+        self.abundance.to_csv(Path(self.outdir, "abundance.csv"))
+        self.taxonomy.to_csv(Path(self.outdir, "taxonomy.csv"))
+        self.metadata.to_csv(Path(self.outdir, "metadata.csv"))
 
     def unify(self):
         common_samples = np.intersect1d(self.abundance.data.index, self.metadata.data.index)
@@ -167,14 +174,13 @@ class MetagenomicDS:
         if norm:
             # Normalize by sample sum
             self.abundance.normalize()
-            
+
         if factor is not None:
             # Mean of OTU abundance in each group
             self.group_samples(factor, 'mean')
 
-        if top > 0:
-            # Only show the most `top` abundant taxa
-            top_otus = self.get_top_otus(top)
-            top = len(top_otus) # in case top=-1
-            self.subset_otus(otus=top_otus)
+        # Only show the most `top` abundant taxa. -1 is just sorting the taxa
+        top_otus = self.get_top_otus(top)
+        top = len(top_otus) # in case top=-1
+        self.subset_otus(otus=top_otus)
         
