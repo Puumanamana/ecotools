@@ -5,10 +5,13 @@ from ecotools.api.util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_legend_out
-def taxa_barplot(metagenome, output=None, factor=None, taxa_file=None, norm=False, rank=None, top=-1, padding=200):
+def taxa_barplot(metagenome, output=None, factor=None,
+                 taxa_file=None, taxa=None, clade=False,
+                 norm=False, rank=None, top=-1, padding=200):
 
     metagenome = metagenome.copy()
-    metagenome.preprocess(factor=factor, taxa_file=taxa_file, norm=norm, rank=rank, top=top)
+    metagenome.preprocess(factor=factor, norm=norm, rank=rank, top=top,
+                          taxa_file=taxa_file, taxa=taxa, clade=clade,)
 
     # Discard OTU with a min relative abundance below 0.1%
     main_otus = metagenome.abundance.get_most_abundant_otus(thresh=0.001)
@@ -19,13 +22,13 @@ def taxa_barplot(metagenome, output=None, factor=None, taxa_file=None, norm=Fals
                     .str.replace('(\(.*\))', '')
                     .str.slice(stop=100))
 
-    tooltips = zip(data.columns, '@'+data.columns+'{0.0%}'*norm)
+    tooltips = zip(data.columns, '@'+data.columns+'{0.00%}'*norm)
 
     factors = data.index.tolist()
     if all(f.isdigit() for f in factors):
         factors = sorted(factors, key=int)
 
-    width = max(800, metagenome.n_samples()*150) + PADDING
+    width = max(800, metagenome.n_samples()*100) + PADDING
     height = 600 + PADDING
 
     palette = get_palette(data.shape[1])

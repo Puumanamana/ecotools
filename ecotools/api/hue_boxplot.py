@@ -1,11 +1,14 @@
 import sys
+import re
+
 import numpy as np
 
 from bokeh.plotting import figure
 from bokeh.transform import dodge
 from bokeh.models import HoverTool
 
-from ecotools.api.util import bokeh_save, bokeh_legend_out, get_palette, TOOLS
+from ecotools.api.util import bokeh_save, bokeh_legend_out, get_palette
+from ecotools.api.util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_legend_out
@@ -13,12 +16,12 @@ def diversity_with_meta(metagenome, columns,
                         output=None,
                         metric='richness',
                         taxa_file=None,
+                        clade=False,
                         norm=True,
-                        rank=None,
-                        padding=200):
+                        rank=None,):
 
     metagenome = metagenome.copy()
-    metagenome.preprocess(taxa_file=taxa_file, norm=norm, rank=rank)
+    metagenome.preprocess(taxa_file=taxa_file, clade=clade, norm=norm, rank=rank)
     metagenome.abundance.calc_diversity()
 
     x_values = metagenome.metadata.factor_data(columns[0]).unique()
@@ -37,7 +40,7 @@ def diversity_with_meta(metagenome, columns,
 
     # Properly sort factors levels
     if all(x.isdigit() for x in x_values):
-        x_values = sorted(x_values, key=float)
+        x_values = sorted(x_values, key=float) 
     if all(x.isdigit() for x in hue_values):
         hue_values = sorted(hue_values, key=float)
     
@@ -62,16 +65,23 @@ def diversity_with_meta(metagenome, columns,
     box_data.columns = [f'{col}_{hue_i}'.strip('_') for (col, hue_i) in box_data.columns]
     box_data.reset_index(inplace=True)
 
-    scatter_data = diversity.sample(frac=1).groupby([hue_name, x_name]).head(500)
+    scatter_data = diversity.sample(frac=1).groupby([hue_name, x_name]).head(100)
 
-    p = figure(x_range=x_values, plot_height=500+padding, plot_width=1200+padding,
-               min_border=padding,
+    var_tooltips = {x: re.sub("[^A-Za-z0-9_ ]", '_', x.replace("'", ""))
+                    for x in metagenome.metadata.qual_vars}
+    tooltips = zip(var_tooltips.values(), map(lambda x: '@{}'.format(x), var_tooltips.values()))
+
+    scatter_data = scatter_data.rename(columns=var_tooltips)
+
+    p = figure(x_range=x_values, plot_height=500+PADDING, plot_width=1000+PADDING,
+               min_border=PADDING,
                title=output.name, tools=TOOLS[1:])
 
-    width = 0.8 / len(hue_values)
+    width = 2 / len(hue_values)
+    hue_space = 1.1
 
     for i, hue_i in enumerate(hue_values):
-        x_dodge = dodge(x_name, 1.1*width*(i+0.5-len(hue_values)/2), range=p.x_range)
+        x_dodge = dodge(x_name, hue_space*width*(i+0.5-len(hue_values)/2), range=p.x_range)
         p.vbar(x=x_dodge, bottom=f'50%_{hue_i}', top=f'75%_{hue_i}', width=width, line_color="black",
                source=box_data, color=palette[hue_i], legend_label=hue_i)
         p.vbar(x=x_dodge, bottom=f'25%_{hue_i}', top=f'50%_{hue_i}', width=width, line_color="black",
@@ -82,12 +92,13 @@ def diversity_with_meta(metagenome, columns,
 
         p.circle(x=x_dodge, y=metric, name='scatter',
                  line_color='black', fill_color='white', alpha=0.7,
-                 source=scatter_data[scatter_data[hue_name]==hue_i])
+                 source=scatter_data[scatter_data[var_tooltips[hue_name]]==hue_i])
 
-    tooltips = zip(metagenome.metadata.qual_vars, '@'+metagenome.metadata.qual_vars)
     hover = HoverTool(names=['scatter'], tooltips=list(tooltips))
     p.add_tools(hover)
 
+    p.x_range.range_padding = 0.2
+    p.x_range.factor_padding = 2 # also subgroup_padding, group_padding
     p.xaxis.major_label_orientation = 'vertical'
     p.xaxis.axis_label = x_name
     p.yaxis.axis_label = metric

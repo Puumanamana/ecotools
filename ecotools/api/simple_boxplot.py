@@ -11,11 +11,12 @@ from util import bokeh_save, get_palette, TOOLS
 def diversity_with_meta(metagenome, column, output=None,
                         metric='richness',
                         taxa_file=None,
+                        clade=False,
                         norm=True,
                         rank=None):
 
     metagenome = metagenome.copy()
-    metagenome.preprocess(taxa_file=taxa_file, norm=norm, rank=rank)
+    metagenome.preprocess(taxa_file=taxa_file, norm=norm, rank=rank, clade=clade)
     metagenome.abundance.calc_diversity()
 
     diversity = (metagenome.metadata.factor_data()

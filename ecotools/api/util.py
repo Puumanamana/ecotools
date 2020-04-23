@@ -3,7 +3,7 @@ from bokeh.palettes import linear_palette, Turbo256
 from bokeh.models import Legend
 from bokeh.io import output_file, save
 
-TOOLS = ['hover', 'box_zoom', 'reset']
+TOOLS = ['hover', 'box_zoom', 'pan', 'reset']
 PADDING = 200
 LEG_TXT_LEN = 20
 LEG_NROWS = 20
@@ -57,7 +57,12 @@ def bokeh_save(func):
         p = func(*args, **kwargs)
 
         if 'output' in kwargs and kwargs['output'] is not None:
-            output_file(kwargs['output'])
+            output = kwargs['output']
+            
+            if 'figdir' in args[0].__dict__:
+                output = '{}/{}'.format(args[0].__dict__['figdir'], output)
+                
+            output_file(output)
             save(p)
         else:
             return p

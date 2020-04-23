@@ -155,6 +155,12 @@ class MetadataTable(Data):
 
         self.data.loc[:, name] = values
 
+    def drop_vars(self, *names):
+        names = list(names)
+        self.quant_vars = np.setdiff1d(self.quant_vars, names)
+        self.qual_vars = np.setdiff1d(self.qual_vars, names)
+        self.data.drop(names, axis=1, inplace=True)
+
 class AbundanceTable(Data):
 
     def __init__(self, **kwargs):
@@ -291,23 +297,47 @@ class TaxonomyTable(Data):
                     data=self.data.index.to_numpy().astype(otu_dtype)
                 )
 
-    def subset_species(self, other, threshold=0.5):
+    def get_ranks(self, info):
+        '''
+        Get either of the rank, values in info (logical or)
+        '''
+
+        info = [(rank.title(), pd.Series(vals).str.lower()) for (rank, vals) in info]
+        data_lower = self.data.fillna('').applymap(lambda x: x.lower())
+        
+        conditions = [
+            data_lower[rank].isin(vals)
+            for (rank, vals) in info
+        ]
+
+        if len(conditions) == 1:
+            condition = conditions[0]
+        else:
+            condition = np.logical_or(*conditions)
+
+        return self.data.index[condition]
+
+    def get_clade(self, other, threshold=0.5):
         if not self.species_path:
             sys.exit('Error: No species information')
 
         species = self.data.Species.dropna().str.split('/').explode()
         species = self.data.reindex(index=species.index).Genus + ' ' + species
 
-        is_pathogenic = (species.str.lower()
-                         .isin(other.str.lower())
-                         .groupby(level=0).agg('mean'))
+        is_clade = (species.str.lower()
+                    .isin(other.str.lower())
+                    .groupby(level=0).agg('mean'))
         
-        patho_otus = is_pathogenic.index[is_pathogenic >= threshold]
+        clade_otus = is_clade.index[is_clade > threshold]
         
-        hits = self.data.Species.loc[patho_otus]
+        hits = self.data.Species.loc[clade_otus]
 
         return hits
 
+    def get_species(self, other):
+        return self.get_clade(other, threshold=0)
+
+    
 class DNAsequences(Data):
 
     def __init__(self, path):

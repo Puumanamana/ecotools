@@ -107,13 +107,19 @@ class MetagenomicDS:
             self.abundance.data = self.abundance.data.loc[:, ~null_otus]
             self.taxonomy.data = self.taxonomy.data.loc[~null_otus]
 
-    def subset_otus(self, otus=None, taxa_file=None):
+    def subset_otus(self, otus=None, taxa_file=None, taxa=None, clade=False):
+
+        if taxa is not None:
+            otus = self.taxonomy.get_ranks(taxa)
 
         if taxa_file is not None:
             ids = pd.read_csv(taxa_file).iloc[:, 0]
 
             if ids.name.lower() == 'species':
-                hits = self.taxonomy.subset_species(ids)
+                if clade:
+                    hits = self.taxonomy.get_clade(ids)
+                else:
+                    hits = self.taxonomy.get_species(ids)
                 otus = hits.index
 
             else:
@@ -162,10 +168,10 @@ class MetagenomicDS:
         return sorted_otus[:n]
 
     
-    def preprocess(self, factor=None, taxa_file=None, norm=False, rank=None, top=-1):
+    def preprocess(self, factor=None, taxa_file=None, taxa=None, norm=False, rank=None, top=-1, clade=False):
 
-        if taxa_file is not None:
-            self.subset_otus(taxa_file=taxa_file)
+        if taxa_file is not None or taxa is not None:
+            self.subset_otus(taxa_file=taxa_file, clade=clade, taxa=taxa)
 
         if rank is not None:
             # Only show annotation at the `rank` level
