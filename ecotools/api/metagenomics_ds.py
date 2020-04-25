@@ -123,7 +123,7 @@ class MetagenomicDS:
                 otus = hits.index
 
             else:
-                annotations = self.taxonomy.data[ids.name.title()]
+                annotations = self.taxonomy[ids.name.title()]
                 otus = self.otus()[np.isin(annotations, ids)]
 
         self.abundance.data = self.abundance.data.loc[:, otus]
@@ -137,9 +137,7 @@ class MetagenomicDS:
 
     def group_samples(self, columns, fn):
         groups = self.metadata.data[columns]
-
-        self.abundance.data = self.abundance.data.groupby(groups).agg(fn)
-
+        self.abundance.data = self.abundance.data.groupby(groups, sort=False).agg(fn)
         self.metadata.group_samples(columns)
 
     def group_taxa(self, rank):
@@ -159,15 +157,6 @@ class MetagenomicDS:
             print('Some {}s have different upper level ranks'.format(rank))
             import ipdb;ipdb.set_trace()
 
-    def get_top_otus(self, n=-1):
-        sorted_otus = self.abundance.data.sum().sort_values(ascending=False).index
-        
-        if n <=0:
-            return sorted_otus
-
-        return sorted_otus[:n]
-
-    
     def preprocess(self, factor=None, taxa_file=None, taxa=None, norm=False, rank=None, top=-1, clade=False):
 
         if taxa_file is not None or taxa is not None:
@@ -185,8 +174,6 @@ class MetagenomicDS:
             # Mean of OTU abundance in each group
             self.group_samples(factor, 'mean')
 
-        # Only show the most `top` abundant taxa. -1 is just sorting the taxa
-        top_otus = self.get_top_otus(top)
-        top = len(top_otus) # in case top=-1
-        self.subset_otus(otus=top_otus)
+        ordered_otus = self.abundance.data.sum().sort_values(ascending=False).index
+        self.subset_otus(otus=ordered_otus)
         

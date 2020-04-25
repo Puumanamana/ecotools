@@ -224,7 +224,7 @@ class AbundanceTable(Data):
         self.data = ((self.data.T) / self.raw_sample_sizes.loc[self.data.index]).T
 
     def get_most_abundant_otus(self, thresh=0.01):
-        proportions = (self.data / self.data.sum()).min()
+        proportions = (self.data.T / self.data.sum(axis=1)).max(axis=1)
         main_otus = proportions.index[proportions > thresh]
 
         return main_otus
