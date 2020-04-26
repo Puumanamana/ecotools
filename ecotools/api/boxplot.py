@@ -7,8 +7,8 @@ from bokeh.plotting import figure
 from bokeh.transform import dodge
 from bokeh.models import HoverTool
 
-from ecotools.api.util import bokeh_save, bokeh_legend_out, bokeh_facets, get_palette
-from ecotools.api.util import TOOLS, PADDING
+from ecotools.api.bokeh_util import bokeh_save, bokeh_legend_out, bokeh_facets, get_palette
+from ecotools.api.bokeh_util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_facets
@@ -24,7 +24,7 @@ def diversity_with_meta(metagenome, columns,
 
     metagenome = metagenome.copy()
     metagenome.preprocess(taxa_file=taxa_file, clade=clade, norm=norm, rank=rank)
-    metagenome.abundance.calc_diversity()
+    metagenome.abundance.compute_alpha_diversity()
 
     x_values = metagenome.metadata.factor_data(columns[0]).unique()
 

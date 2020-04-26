@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import h5py
+from sklearn.metrics import pairwise_distances
 from skbio import diversity
 
 from Bio.SeqIO.FastaIO import SimpleFastaParser
@@ -33,7 +34,8 @@ class Data:
 
     def valid_input(self):
         if not self.path.is_file():
-            warnings.warn('Could not find {}'.format(self.path.name), UserWarning)
+            msg = 'Could not find {}'.format(self.path.name)
+            warnings.warn(msg, UserWarning)
             return False
         return True
 
@@ -168,6 +170,7 @@ class AbundanceTable(Data):
         self.load()
         self.raw_sample_sizes = self.data.sum(axis=1)
         self.alpha_diversity = None
+        self.beta_diversity = None
 
     def __repr__(self):
         return "Abundance table: {} samples, {} OTUs".format(*self.data.shape)
@@ -229,8 +232,7 @@ class AbundanceTable(Data):
 
         return main_otus
 
-    def calc_diversity(self):
-
+    def compute_alpha_diversity(self):
         alpha_div = pd.DataFrame({
             'n_otus': self.data.sum(axis=1),
             'richness': (self.data > 0).sum(axis=1),
@@ -239,6 +241,17 @@ class AbundanceTable(Data):
         })
 
         self.alpha_diversity = alpha_div
+
+    def compute_distance_matrix(self, tree=None, method='braycurtis'):
+        if method.lower() in {'unweighted_unifrac', 'weighted_unifrac'}:
+            dist = diversity.beta_diversity(
+                method.lower(), self.data, otu_ids=self.data.columns, tree=tree
+            )
+        else:
+            dist = diversity.beta_diversity(method.lower(), self.data)
+
+        self.beta_diversity = dist
+
 
 class TaxonomyTable(Data):
     ranks = ["Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"]
@@ -340,8 +353,8 @@ class TaxonomyTable(Data):
     
 class DNAsequences(Data):
 
-    def __init__(self, path):
-        self.path = Path(path)
+    def __init__(self, **kwargs):
+        Data.__init__(self, **kwargs)
         self.load()
 
     def __repr__(self):
@@ -363,3 +376,25 @@ class DNAsequences(Data):
             for title, seq in SimpleFastaParser(in_handle):
                 (name, descr) = title.split()
                 self.data.append({'name': name, 'descr': descr, 'seq': seq})
+
+# class PhyloTree(Data):
+
+#     def __init__(self, **kwargs):
+#         Data.__init__(self, **kwargs)
+#         self.load()
+
+#     def __repr__(self):
+#         return repr(self.data)
+
+#     def load_h5(self, outdir='.', ds='project'):
+#         print('Not implemented')
+    
+#     def load(self):
+#         if self.h5.is_file():
+#             self.load_h5()
+#             return
+
+#         if not self.valid_input():
+#             return
+        
+#         self.data = TreeNode.read(str(self.path))

@@ -5,6 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from skbio.tree import TreeNode
+from Bio import Phylo
+
 from ecotools.api.base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable
 
 def elt_or_nothing(l):
@@ -20,6 +23,7 @@ class MetagenomicDS:
             abd_path='',
             tax_path='', species_path='',
             fasta_path='',
+            tree_path='',
             meta_path='', qual_vars=None
     ):
         self.outdir = Path(outdir)
@@ -28,13 +32,14 @@ class MetagenomicDS:
         
         self.abundance = AbundanceTable(path=abd_path, ds=ds, outdir=outdir)
         self.taxonomy = TaxonomyTable(path=tax_path, species_path=species_path, ds=ds, outdir=outdir)
+        self.tree_path = tree_path
         self.metadata = MetadataTable(*qual_vars, path=meta_path, ds=ds, outdir=outdir)
         self.unify()
         self.figdir.mkdir(parents=True, exist_ok=True)
 
     def __repr__(self):
         return '\n'.join(
-            data.__repr__() for data in
+            repr(data) for data in
             [self.abundance, self.taxonomy, self.metadata]
         )
 
@@ -92,6 +97,18 @@ class MetagenomicDS:
             sys.exit("Did not find any common OTUs between taxonomy and abundance table")
 
         self.subset_otus(otus=common_otus)
+
+    def get_tree(self):
+        if self.tree_path.suffix == '.nwk':
+            return TreeNode.read(str(self.tree_path))
+
+        # Correct formatting for TreeNode
+        tree = Phylo.read(str(self.tree_path), 'newick')
+
+        self.tree_path = Path(self.tree_path.parent, '{}.nwk'.format(self.tree_path.stem))
+        Phylo.write(tree, Path(self.tree_path.parent, str(self.tree_path)), 'newick')
+
+        return self.get_tree()
 
     def subset_samples(self, sample_names=None, sample_file=None):
 

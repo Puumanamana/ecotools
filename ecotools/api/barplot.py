@@ -1,7 +1,7 @@
 from bokeh.plotting import figure
 
-from ecotools.api.util import bokeh_legend_out, bokeh_save, bokeh_facets, get_palette
-from ecotools.api.util import TOOLS, PADDING
+from ecotools.api.bokeh_util import bokeh_legend_out, bokeh_save, bokeh_facets, get_palette
+from ecotools.api.bokeh_util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_facets
