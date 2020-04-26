@@ -16,7 +16,6 @@ from ecotools.api.bokeh_util import TOOLS, PADDING
 def diversity_with_meta(metagenome, columns,
                         output=None,
                         metric='richness',
-                        facets=None,
                         taxa_file=None,
                         clade=False,
                         norm=True,

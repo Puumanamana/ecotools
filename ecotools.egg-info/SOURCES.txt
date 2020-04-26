@@ -1,10 +1,7 @@
 README.rst
 setup.py
 ecotools/__init__.py
-ecotools/chem_vs_16S.py
 ecotools/correlations.py
-ecotools/factors_vs_16S.py
-ecotools/factors_vs_chemistry.py
 ecotools/group_distances.py
 ecotools/load_and_convert.py
 ecotools/main.py
@@ -12,6 +9,9 @@ ecotools/nmds.py
 ecotools/parser.py
 ecotools/pathogens.py
 ecotools/plot_permanova_results.py
+ecotools/subset.py
+ecotools/taxa_stackplot.py
+ecotools/util.py
 ecotools.egg-info/PKG-INFO
 ecotools.egg-info/SOURCES.txt
 ecotools.egg-info/dependency_links.txt

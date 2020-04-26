@@ -226,6 +226,10 @@ class AbundanceTable(Data):
     def normalize(self):
         self.data = ((self.data.T) / self.raw_sample_sizes.loc[self.data.index]).T
 
+    def wisconsin(self):
+        self.data = self.data / self.data.max(axis=0)
+        self.data = (self.data.T / self.data.sum(axis=1)).T
+
     def get_most_abundant_otus(self, thresh=0.01):
         proportions = (self.data.T / self.data.sum(axis=1)).max(axis=1)
         main_otus = proportions.index[proportions > thresh]

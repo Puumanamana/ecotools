@@ -157,16 +157,17 @@ class MetagenomicDS:
         self.abundance.data = self.abundance.data.groupby(groups, sort=False).agg(fn)
         self.metadata.group_samples(columns)
 
-    def group_taxa(self, rank):
+    def group_taxa(self, rank, discard_unknown=True):
         all_ranks = self.taxonomy.data.columns
         rank_idx = all_ranks.get_loc(rank) + 1
         ranks_to_keep = all_ranks[:rank_idx]
-
         rank_annot = self.taxonomy.data[rank]
 
-        valid = ~(rank_annot.str.contains('uncultured|unclassified|unknown'))
-
-        self.subset_otus(otus=self.otus()[valid])
+        if discard_unknown:
+            # Remove any rank with unknown label
+            valid = ~(rank_annot.str.contains('uncultured|unclassified|unknown'))
+            self.subset_otus(otus=self.otus()[valid])
+            
         self.abundance.data = self.abundance.data.groupby(rank_annot, axis=1).agg(sum)
         self.taxonomy.data = self.taxonomy.data.groupby(rank)[ranks_to_keep].agg(elt_or_nothing)
 

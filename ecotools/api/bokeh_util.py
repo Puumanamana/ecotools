@@ -1,5 +1,7 @@
 import sys
 
+import pandas as pd
+
 from bokeh.palettes import inferno
 from bokeh.models import Legend
 from bokeh.io import output_file, save
@@ -23,8 +25,9 @@ def bokeh_legend_out(func):
         
         leg_items = []
         for item in p.legend.items[::-1]:
-            label = item.label['value']
-            item.label['value'] = label[:LEG_TXT_LEN] + '..'*(len(label) > LEG_TXT_LEN)
+            if 'value' in item.label:
+                label = item.label['value']
+                item.label['value'] = label[:LEG_TXT_LEN] + '..'*(len(label) > LEG_TXT_LEN)
             leg_items.append(item)        
 
         p.legend.items.clear()
@@ -78,25 +81,27 @@ def bokeh_facets(func):
                      .format(type(args[0]).__name__))
 
         metagenome = args[0]
+        metadata = args[0].metadata.data
 
-        if 'facets' not in kwargs or kwargs['facets'] is None:
+        facet_name = ['facets_{}'.format(dim) for dim in ['x', 'y']]
+        facet_values = pd.Series({name: kwargs.pop(name, None) for name in facet_name}).dropna()
+        
+        if facet_values.size == 0:
             return func(*args, **kwargs)
 
-        if any(x not in metagenome.metadata.qual_vars for x in kwargs['facets']):
-            sys.exit('Facet factor {} not found in metadata.'.format(kwargs['facets']))
+        if any(x not in metagenome.metadata.qual_vars for x in facet_values.tolist()):
+            sys.exit('Facet factor {} not found in metadata.'
+                     .format('/'.join(facet_values.tolist())))
             return func(*args, **kwargs)
 
-        facet_factors = list(kwargs.pop('facets'))
-        factors = metagenome.metadata.data[facet_factors]
+        factors = metadata[facet_values.tolist()]
+
         ncol = 1
-
-        if len(facet_factors) > 1:
-            ncol = len(factors[facet_factors[1]].unique())
-            factors = factors.apply(tuple, axis=1)
-            levels = factors.unique()
-        else:
-            factors = factors.iloc[:, 0]
-            levels = factors.drop_duplicates()
+        if 'facets_y' in facet_values.index:
+            ncol = len(factors[facet_values['facets_y']].unique())
+        
+        factors = factors.apply(tuple, axis=1)
+        levels = factors.drop_duplicates().sort_values()
 
         grid = []
         for level in levels:
@@ -107,10 +112,9 @@ def bokeh_facets(func):
             
             p = func(metagenome_subset, *args[1:], **kwargs)
 
-            if len(facet_factors) == 1:
-                facet_suffix = '{}: {}'.format(facet_factors[0], level)
-            else:
-                facet_suffix = ', '.join(': '.join(info) for info in zip(facet_factors, level))
+            facet_suffix = ', '.join(
+                ': '.join(info) for info in zip(facet_values.tolist(), level)
+            )
             p.title.text = "{} - {}".format(facet_suffix, p.title.text)
 
             grid.append(p)
