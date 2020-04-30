@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import h5py
 from sklearn.metrics import pairwise_distances
+
 from skbio import diversity
+from skbio.stats import subsample_counts
 
 from Bio.SeqIO.FastaIO import SimpleFastaParser
 
@@ -71,6 +73,7 @@ class MetadataTable(Data):
         sep = {'.csv': ',', '.tsv': '\t'}.get(self.path.suffix, '\t')
 
         self.data = pd.read_csv(self.path, index_col=0, sep=sep, dtype=dtypes)
+        self.data.index.name = 'SampleID'
 
         self.quant_vars = self.data.select_dtypes(include='number').columns.to_numpy()
         self.qual_vars = self.data.drop(self.quant_vars, axis=1).columns.to_numpy()
@@ -189,6 +192,8 @@ class AbundanceTable(Data):
         self.data = pd.read_csv(self.path, index_col='Group', sep='\t', dtype=dtypes,
                                 keep_default_na=False, low_memory=False,
                                 usecols=lambda x: x not in ['label', 'numOtus'])
+        self.data.index.name = 'SampleID'
+
     def to_h5(self):
         sample_dtype = get_str_dtype(self.data.index)
         otu_dtype = get_str_dtype(self.data.columns)
@@ -230,6 +235,21 @@ class AbundanceTable(Data):
         self.data = self.data / self.data.max(axis=0)
         self.data = (self.data.T / self.data.sum(axis=1)).T
 
+    def subsample(self, level):
+        dropped = []
+        choices = np.arange(self.data.shape[1])
+
+        for (i, row) in enumerate(self.data.to_numpy()):
+            try:
+                row_subsampled = subsample_counts(row, level)
+            except ValueError:
+                dropped.append(i)
+                continue
+                
+            self.data.iloc[i] = row_subsampled
+
+        self.data.drop(self.data.index[dropped], inplace=True)
+
     def get_most_abundant_otus(self, thresh=0.01):
         proportions = (self.data.T / self.data.sum(axis=1)).max(axis=1)
         main_otus = proportions.index[proportions > thresh]
@@ -246,16 +266,34 @@ class AbundanceTable(Data):
 
         self.alpha_diversity = alpha_div
 
-    def compute_distance_matrix(self, tree=None, method='braycurtis'):
-        if method.lower() in {'unweighted_unifrac', 'weighted_unifrac'}:
-            dist = diversity.beta_diversity(
-                method.lower(), self.data, otu_ids=self.data.columns, tree=tree
-            )
+    def compute_distance_matrix(self, tree=None, metric='braycurtis', force_subsampling=True):
+
+        sample_sums = self.data.sum(axis=1)
+        if sample_sums.std() > 1:
+            warnings.warn("Your samples are not of equal sizes. This is known to affect diversity calculation. Performing subsampling. You can choose to not subsample at your own risks by setting force_subsampling to False.", UserWarning)
+
+            if force_subsampling:
+                subsampling_level = max(sample_sums.quantile(0.1, axis=1), 5000)
+                self.subsample(subsampling_level)
+        
+        metric = metric.lower()
+        print('Calculating {} distance for all samples ({})'.format(metric, self.data.shape[0]))
+
+        output = Path(self.outdir, 'distances_{}_by-{}.npy'.format(metric, self.data.index.name))
+        if output.is_file():
+            dist = np.load(output)
+
         else:
-            dist = diversity.beta_diversity(method.lower(), self.data)
+            if metric in {'unweighted_unifrac', 'weighted_unifrac'}:
+                dist = diversity.beta_diversity(
+                    metric, self.data, otu_ids=self.data.columns, tree=tree
+                ).data
+            else:
+                dist = diversity.beta_diversity(metric, self.data).data
+                
+            np.save(output, dist)
 
-        self.beta_diversity = dist
-
+        self.beta_diversity = pd.DataFrame(dist, index=self.data.index, columns=self.data.index)
 
 class TaxonomyTable(Data):
     ranks = ["Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"]

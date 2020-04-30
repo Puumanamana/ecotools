@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -21,34 +22,40 @@ def get_attributes(obj, keyword):
 
 def bokeh_legend_out(func):
     def wrapper(*args, **kwargs):
-        p = func(*args, **kwargs)
+        plots = func(*args, **kwargs)
         
-        leg_items = []
-        for item in p.legend.items[::-1]:
-            if 'value' in item.label:
-                label = item.label['value']
-                item.label['value'] = label[:LEG_TXT_LEN] + '..'*(len(label) > LEG_TXT_LEN)
-            leg_items.append(item)        
+        if type(plots) != type([]):
+            plots = [plots]
 
-        p.legend.items.clear()
+        for p in plots:
+            if not p.title.text:
+                p.title.text = Path(kwargs['output']).stem.replace('_', ' ')
         
-        col = 0 
-        while leg_items:
-            if col == LEG_MAXCOL:
-                items = [leg_items.pop() for _ in range(len(leg_items))]
-            else:
-                items = [leg_items.pop() for _ in range(LEG_NROWS) if leg_items]
-            legend = Legend(items=items, location=(25, 0))
-            p.add_layout(legend, 'right')
-            col += 1
+            leg_items = []
+            for item in p.legend.items[::-1]:
+                if 'value' in item.label:
+                    label = item.label['value']
+                    item.label['value'] = label[:LEG_TXT_LEN] + '..'*(len(label) > LEG_TXT_LEN)
+                leg_items.append(item)        
 
-        p.legend.label_text_font_size = '8pt'
-        p.legend.padding = 0
-        p.legend.spacing = 0
-        p.legend.border_line_color = None
-        # p.legend.label_width = LEG_TXT_LEN
+            p.legend.items.clear()
+        
+            col = 0 
+            while leg_items:
+                if col == LEG_MAXCOL:
+                    items = [leg_items.pop() for _ in range(len(leg_items))]
+                else:
+                    items = [leg_items.pop() for _ in range(LEG_NROWS) if leg_items]
+                legend = Legend(items=items, location=(25, 0))
+                p.add_layout(legend, 'right')
+                col += 1
 
-        return p
+                p.legend.label_text_font_size = '8pt'
+                p.legend.padding = 0
+                p.legend.spacing = 0
+                p.legend.border_line_color = None
+                # p.legend.label_width = LEG_TXT_LEN
+        return plots
     return wrapper
 
 def bokeh_save(func):
@@ -110,15 +117,18 @@ def bokeh_facets(func):
             metagenome_subset = metagenome.copy()
             metagenome_subset.subset_samples(sample_names=samples)
             
-            p = func(metagenome_subset, *args[1:], **kwargs)
+            plots = func(metagenome_subset, *args[1:], **kwargs)
 
             facet_suffix = ', '.join(
                 ': '.join(info) for info in zip(facet_values.tolist(), level)
             )
-            p.title.text = "{} - {}".format(facet_suffix, p.title.text)
 
-            grid.append(p)
-            
+            for p in plots:
+                p.title.text = "{} - {}".format(facet_suffix, p.title.text)
+
+            grid += plots
+
+        ncol = max(ncol, len(plots))
         grid = gridplot(grid, ncols=ncol,
                         plot_width=p.plot_width,
                         plot_height=p.plot_height)

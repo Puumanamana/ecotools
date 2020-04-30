@@ -7,8 +7,8 @@ from bokeh.plotting import figure
 from bokeh.transform import dodge
 from bokeh.models import HoverTool
 
-from ecotools.api.bokeh_util import bokeh_save, bokeh_legend_out, bokeh_facets, get_palette
-from ecotools.api.bokeh_util import TOOLS, PADDING
+from ecotools.bokeh_util import bokeh_save, bokeh_legend_out, bokeh_facets, get_palette
+from ecotools.bokeh_util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_facets
@@ -74,7 +74,7 @@ def diversity_with_meta(metagenome, columns,
 
     p = figure(x_range=x_values, plot_height=500+PADDING, plot_width=1200+PADDING,
                min_border=PADDING,
-               title=output.name, tools=TOOLS[1:])
+               tools=TOOLS[1:])
 
     width = len(scatter_data[x_name].unique()) / 10
     hue_space = 1.1

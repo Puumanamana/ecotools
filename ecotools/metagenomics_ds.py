@@ -8,7 +8,7 @@ import pandas as pd
 from skbio.tree import TreeNode
 from Bio import Phylo
 
-from ecotools.api.base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable
+from ecotools.base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable
 
 def elt_or_nothing(l):
     if len(set(l)) == 1:
@@ -42,6 +42,18 @@ class MetagenomicDS:
             repr(data) for data in
             [self.abundance, self.taxonomy, self.metadata]
         )
+
+    def __getattr__(self, key):
+        if key in dir(self):
+            return getattr(self, key)
+
+        if 'abundance' in dir(self):
+            abd_obj = getattr(self, 'abundance')
+
+            if key in dir(abd_obj):
+                return getattr(abd_obj, key)
+
+        raise AttributeError
 
     def copy(self):
         return copy.deepcopy(self)
@@ -100,7 +112,9 @@ class MetagenomicDS:
 
     def get_tree(self):
         if self.tree_path.suffix == '.nwk':
-            return TreeNode.read(str(self.tree_path))
+            tree = TreeNode.read(str(self.tree_path))
+            tree = tree.root_at_midpoint()
+            return tree
 
         # Correct formatting for TreeNode
         tree = Phylo.read(str(self.tree_path), 'newick')

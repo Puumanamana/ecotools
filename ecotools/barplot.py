@@ -1,7 +1,7 @@
 from bokeh.plotting import figure
 
-from ecotools.api.bokeh_util import bokeh_legend_out, bokeh_save, bokeh_facets, get_palette
-from ecotools.api.bokeh_util import TOOLS, PADDING
+from ecotools.bokeh_util import bokeh_legend_out, bokeh_save, bokeh_facets, get_palette
+from ecotools.bokeh_util import TOOLS, PADDING
 
 @bokeh_save
 @bokeh_facets
@@ -40,8 +40,7 @@ def taxa_barplot(metagenome, output=None, factor=None, cmap={},
     colors = [cmap[x] for x in data.columns]
 
     p = figure(plot_height=height, width=width, min_border=PADDING, x_range=factors,
-               tools=TOOLS, tooltips=list(tooltips),
-               title=output.stem)
+               tools=TOOLS, tooltips=list(tooltips))
 
     p.vbar_stack(data.columns, x=data.index.name, source=data.reset_index(),
                  width=.8, color=colors,
