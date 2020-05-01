@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import h5py
-from sklearn.metrics import pairwise_distances
 
 from skbio import diversity
 from skbio.stats import subsample_counts
@@ -40,6 +39,12 @@ class Data:
             warnings.warn(msg, UserWarning)
             return False
         return True
+
+    def subset_rows(self, x):
+        self.data = self.data.loc[x]
+
+    def subset_cols(self, x):
+        self.data = self.data.loc[:, x]        
 
     def to_csv(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +156,10 @@ class MetadataTable(Data):
             return self.data[self.qual_vars]
         return self.data[col]
 
+    def subset_rows(self, x):
+        self.data = self.data.loc[x]
+        self.data = self.data.loc[:, self.data.count() > 0]
+
     def add_var(self, name, values):
         try:
             values = pd.to_numeric(values)
@@ -225,9 +234,16 @@ class AbundanceTable(Data):
         self.data = pd.DataFrame(table, index=samples, columns=OTUs)
 
     def sample_sizes(self):
-
         return self.data.sum(axis=1)
 
+    def subset_rows(self, x):
+        self.data = self.data.loc[x]
+        self.data = self.data.loc[:, self.data.sum() > 0]
+    
+    def subset_cols(self, x):
+        self.data = self.data.loc[:, x]
+        self.data = self.data.loc[self.data.sum(axis=1) > 0, :]
+    
     def normalize(self):
         self.data = ((self.data.T) / self.raw_sample_sizes.loc[self.data.index]).T
 
@@ -237,7 +253,6 @@ class AbundanceTable(Data):
 
     def subsample(self, level):
         dropped = []
-        choices = np.arange(self.data.shape[1])
 
         for (i, row) in enumerate(self.data.to_numpy()):
             try:
@@ -266,7 +281,7 @@ class AbundanceTable(Data):
 
         self.alpha_diversity = alpha_div
 
-    def compute_distance_matrix(self, tree=None, metric='braycurtis', force_subsampling=True):
+    def compute_distance_matrix(self, tree=None, metric='braycurtis', cache=False, force_subsampling=True):
 
         sample_sums = self.data.sum(axis=1)
         if sample_sums.std() > 1:
@@ -280,7 +295,7 @@ class AbundanceTable(Data):
         print('Calculating {} distance for all samples ({})'.format(metric, self.data.shape[0]))
 
         output = Path(self.outdir, 'distances_{}_by-{}.npy'.format(metric, self.data.index.name))
-        if output.is_file():
+        if output.is_file() and cache:
             dist = np.load(output)
 
         else:

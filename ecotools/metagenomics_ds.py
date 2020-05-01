@@ -34,7 +34,7 @@ class MetagenomicDS:
         self.taxonomy = TaxonomyTable(path=tax_path, species_path=species_path, ds=ds, outdir=outdir)
         self.tree_path = tree_path
         self.metadata = MetadataTable(*qual_vars, path=meta_path, ds=ds, outdir=outdir)
-        self.unify()
+        self.coalesce()
         self.figdir.mkdir(parents=True, exist_ok=True)
 
     def __repr__(self):
@@ -84,59 +84,51 @@ class MetagenomicDS:
         }
     
     def to_h5(self):
-        self.unify()
+        self.coalesce()
         self.abundance.to_h5()
         self.taxonomy.to_h5()
         self.metadata.to_h5()
 
     def to_csv(self):
-        self.unify()
+        self.coalesce()
         self.abundance.to_csv(Path(self.outdir, "abundance.csv"))
         self.taxonomy.to_csv(Path(self.outdir, "taxonomy.csv"))
         self.metadata.to_csv(Path(self.outdir, "metadata.csv"))
 
-    def unify(self):
-        common_samples = np.intersect1d(self.abundance.data.index, self.metadata.data.index)
+    def coalesce(self, samples=True, otus=True):
 
-        if common_samples.size == 0:
-            sys.exit("Did not find any common sample names between metadata and abundance table")
-
-        self.subset_samples(sample_names=common_samples)
-
-        common_otus = np.intersect1d(self.abundance.data.columns, self.taxonomy.data.index)
+        if samples:
+            common_samples = np.intersect1d(self.abundance.data.index, self.metadata.data.index)
         
-        if common_otus.size == 0:
-            sys.exit("Did not find any common OTUs between taxonomy and abundance table")
+            if common_samples.size == 0:
+                sys.exit("No common sample names between metadata and abundance table")
 
-        self.subset_otus(otus=common_otus)
+            self.abundance.subset_rows(common_samples)
+            self.metadata.subset_rows(common_samples)
 
-    def get_tree(self):
-        if self.tree_path.suffix == '.nwk':
-            tree = TreeNode.read(str(self.tree_path))
-            tree = tree.root_at_midpoint()
-            return tree
+        if otus:
+            common_otus = np.intersect1d(self.abundance.data.columns, self.taxonomy.data.index)
+        
+            if common_otus.size == 0:
+                sys.exit("Did not find any common OTUs between taxonomy and abundance table")
 
-        # Correct formatting for TreeNode
-        tree = Phylo.read(str(self.tree_path), 'newick')
+            self.abundance.subset_cols(common_otus)
+            self.taxonomy.subset_rows(common_otus)
+            # later: subset from the fasta + tree as well
 
-        self.tree_path = Path(self.tree_path.parent, '{}.nwk'.format(self.tree_path.stem))
-        Phylo.write(tree, Path(self.tree_path.parent, str(self.tree_path)), 'newick')
-
-        return self.get_tree()
-
+        # Last check: when abundance table was subsetted and we
+        # - removed otus which created empty samples
+        # - or removed samples which creates empty otus
+        self.metadata.subset_rows(self.abundance.data.index)
+        self.taxonomy.subset_rows(self.abundance.data.columns)
+        
     def subset_samples(self, sample_names=None, sample_file=None):
 
         if sample_file is not None:
             sample_names = pd.read_csv(sample_file).iloc[:, 0]
         
-        self.abundance.data = self.abundance.data.loc[sample_names]
-        self.metadata.data = self.metadata.data.loc[sample_names]
-
-        null_otus = self.abundance.data.sum() == 0
-
-        if sum(null_otus) > 0:
-            self.abundance.data = self.abundance.data.loc[:, ~null_otus]
-            self.taxonomy.data = self.taxonomy.data.loc[~null_otus]
+        self.abundance.subset_rows(sample_names)
+        self.coalesce(otus=False)
 
     def subset_otus(self, otus=None, taxa_file=None, taxa=None, clade=False):
 
@@ -157,14 +149,22 @@ class MetagenomicDS:
                 annotations = self.taxonomy[ids.name.title()]
                 otus = self.otus()[np.isin(annotations, ids)]
 
-        self.abundance.data = self.abundance.data.loc[:, otus]
-        self.taxonomy.data = self.taxonomy.data.loc[otus]
+        self.abundance.subset_cols(otus, )
+        self.coalesce(samples=False)
 
-        null_samples = self.abundance.data.sum(axis=1) == 0
+    def get_tree(self):
+        if self.tree_path.suffix == '.nwk':
+            tree = TreeNode.read(str(self.tree_path))
+            tree = tree.root_at_midpoint()
+            return tree
 
-        if sum(null_samples) > 0:
-            self.abundance.data = self.abundance.data.loc[~null_samples]
-            self.metadata.data = self.metadata.data.loc[~null_samples]
+        # Correct formatting for TreeNode
+        tree = Phylo.read(str(self.tree_path), 'newick')
+
+        self.tree_path = Path(self.tree_path.parent, '{}.nwk'.format(self.tree_path.stem))
+        Phylo.write(tree, Path(self.tree_path.parent, str(self.tree_path)), 'newick')
+
+        return self.get_tree()
 
     def group_samples(self, columns, fn):
         groups = self.metadata.data[columns]
@@ -188,6 +188,10 @@ class MetagenomicDS:
         if self.taxonomy.data[rank].isnull().sum() > 0:
             print('Some {}s have different upper level ranks'.format(rank))
             import ipdb;ipdb.set_trace()
+
+    def subsample(self, level):
+        self.abundance.subsample(level)        
+        self.coalesce(otus=False)
 
     def preprocess(self, factor=None, taxa_file=None, taxa=None, norm=False, rank=None, top=-1, clade=False):
 

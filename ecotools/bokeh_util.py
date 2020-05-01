@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from bokeh.palettes import inferno
+from bokeh.palettes import linear_palette, Turbo256
 from bokeh.models import Legend
 from bokeh.io import output_file, save
 from bokeh.layouts import gridplot
@@ -11,11 +11,11 @@ from bokeh.layouts import gridplot
 TOOLS = ['hover', 'box_zoom', 'pan', 'reset']
 PADDING = 50
 LEG_TXT_LEN = 30
-LEG_NROWS = 25
+LEG_NROWS = 14
 LEG_MAXCOL = 3
 
 def get_palette(n):
-    return inferno(n)
+    return linear_palette(Turbo256, n)
  
 def get_attributes(obj, keyword):
     return [x for x in dir(obj) if keyword.lower() in x.lower()]
@@ -46,11 +46,11 @@ def bokeh_legend_out(func):
                     items = [leg_items.pop() for _ in range(len(leg_items))]
                 else:
                     items = [leg_items.pop() for _ in range(LEG_NROWS) if leg_items]
-                legend = Legend(items=items, location=(25, 0))
+                legend = Legend(items=items, location=(25, 0), glyph_height=25, glyph_width=25)
                 p.add_layout(legend, 'right')
                 col += 1
 
-                p.legend.label_text_font_size = '8pt'
+                p.legend.label_text_font_size = '9pt'
                 p.legend.padding = 0
                 p.legend.spacing = 0
                 p.legend.border_line_color = None

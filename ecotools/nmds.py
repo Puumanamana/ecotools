@@ -1,4 +1,4 @@
-from itertools import product, combinations
+from itertools import combinations
 from pathlib import Path
 
 import pandas as pd
@@ -25,12 +25,12 @@ def r_to_pandas(df):
 
     return df_py
 
-def run_nmds(metagenome, k=2, threads=3, trymax=200,
-             rank='Genus', metric='braycurtis'):
+def nmds(metagenome, k=2, threads=3, trymax=200, cache=False,
+         rank='Genus', metric='braycurtis'):
 
     out_file = Path(metagenome.outdir, 'nmds_{}_on_{}_k={}.csv'.format(metric, rank.lower(), k))
 
-    if out_file.is_file():
+    if out_file.is_file() and cache:
         nmds_scores = pd.read_csv(out_file, index_col=0)
         return nmds_scores
 
@@ -71,9 +71,11 @@ def plot_nmds(metagenome, components, hue=None, output=None):
 
     plots = []
     for (k1, k2) in combinations(range(1, n_components+1), 2):
+        (label1, label2) = ('nmds_{}'.format(k1), 'nmds_{}'.format(k2))
+
         p = figure(title="NMDS components ({} vs {})".format(k1, k2),
                    tooltips=list(tooltips), min_border=PADDING)
-        p.circle(x='nmds_{}'.format(k1), y='nmds_{}'.format(k2), color='color', line_color='gray',
+        p.circle(x=label1, y=label2, color='color', line_color='gray',
                  source=components, size=10, alpha=0.5, legend_field=hue)
         plots.append(p)
 
