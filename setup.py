@@ -20,6 +20,7 @@ setup(name='ecotools',
           'scipy',
           'scikit-learn',
           'scikit-bio',
-          'rpy2',
-          'tzlocal'
+          'rpy2>=3.3.0',
+          'tzlocal',
+          'pyyaml',
       ])
