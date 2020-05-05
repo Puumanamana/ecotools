@@ -1,0 +1,16 @@
+bokeh:
+  padding: 50
+  leg_txt_len: 30
+  leg_nrows: 14
+  leg_maxcol: 3
+  leg_fs: 9pt
+  tools:
+    - hover
+    - box_zoom
+    - pan
+    - reset
+    
+    
+
+
+    

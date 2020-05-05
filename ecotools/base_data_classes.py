@@ -1,6 +1,8 @@
 import sys
 import warnings
 from pathlib import Path
+import subprocess
+from tempfile import mkdtemp
 
 import numpy as np
 import pandas as pd
@@ -8,8 +10,10 @@ import h5py
 
 from skbio import diversity
 from skbio.stats import subsample_counts
+from skbio.tree import TreeNode
 
-from Bio.SeqIO.FastaIO import SimpleFastaParser
+from Bio import SeqIO, AlignIO
+from Bio.Phylo.Applications import PhymlCommandline
 
 def get_header(path, sep='\t'):
     return next(open(path)).split(sep)
@@ -138,18 +142,19 @@ class MetadataTable(Data):
 
     def group_samples(self, factors):
         # keep the columns with a unique value when aggregated
-        cols_to_drop = self.qual_vars[self.data
-                        .groupby(factors)[self.qual_vars]
-                        .agg(lambda x: len(set(x)))
-                        .max() > 1]
+        qual_vars = np.setdiff1d(self.qual_vars, factors)
+        
+        cols_to_drop = qual_vars[self.data
+                                 .groupby(factors)[qual_vars]
+                                 .agg(lambda x: len(set(x)))
+                                 .max() > 1]
 
-        print('Dropping {}: multiple values when grouping'.format(
-            ','.join(cols_to_drop.tolist()))
-        )
-        self.quant_vars = np.setdiff1d(self.quant_vars, cols_to_drop)
         self.qual_vars = np.setdiff1d(self.qual_vars, cols_to_drop)
 
-        self.data = self.data.groupby(factors).agg('first').drop(cols_to_drop, axis=1)
+        agg = dict((col, 'mean') if col in self.quant_vars
+                   else (col, 'first') for col in self.data.columns)
+        
+        self.data = self.data.groupby(factors).agg(agg).drop(cols_to_drop, axis=1)
 
     def factor_data(self, col=None):
         if col is None:
@@ -180,9 +185,11 @@ class AbundanceTable(Data):
     def __init__(self, **kwargs):
         Data.__init__(self, **kwargs)
         self.load()
+
         self.raw_sample_sizes = self.data.sum(axis=1)
+
         self.alpha_diversity = None
-        self.beta_diversity = None
+        self.distance_matrix = None
 
     def __repr__(self):
         return "Abundance table: {} samples, {} OTUs".format(*self.data.shape)
@@ -233,6 +240,12 @@ class AbundanceTable(Data):
 
         self.data = pd.DataFrame(table, index=samples, columns=OTUs)
 
+    def otus(self):
+        return self.data.columns
+
+    def samples(self):
+        return self.data.index
+    
     def sample_sizes(self):
         return self.data.sum(axis=1)
 
@@ -271,44 +284,17 @@ class AbundanceTable(Data):
 
         return main_otus
 
-    def compute_alpha_diversity(self):
-        alpha_div = pd.DataFrame({
-            'n_otus': self.data.sum(axis=1),
-            'richness': (self.data > 0).sum(axis=1),
-            'chao': self.data.apply(diversity.alpha.chao1, axis=1),
-            'shannon': self.data.apply(diversity.alpha.shannon, axis=1),
-        })
+    def compute_alpha_diversity(self, metric):
 
-        self.alpha_diversity = alpha_div
-
-    def compute_distance_matrix(self, tree=None, metric='braycurtis', cache=False, force_subsampling=True):
-
-        sample_sums = self.data.sum(axis=1)
-        if sample_sums.std() > 1:
-            warnings.warn("Your samples are not of equal sizes. This is known to affect diversity calculation. Performing subsampling. You can choose to not subsample at your own risks by setting force_subsampling to False.", UserWarning)
-
-            if force_subsampling:
-                subsampling_level = max(sample_sums.quantile(0.1, axis=1), 5000)
-                self.subsample(subsampling_level)
-        
-        metric = metric.lower()
-        print('Calculating {} distance for all samples ({})'.format(metric, self.data.shape[0]))
-
-        output = Path(self.outdir, 'distances_{}_by-{}.npy'.format(metric, self.data.index.name))
-        if output.is_file() and cache:
-            dist = np.load(output)
-
+        if metric == 'n_otus':
+            self.alpha_diversity = self.data.sum(axis=1)
+        elif metric == 'richness':
+            self.alpha_diversity = (self.data > 0).sum(axis=1)
         else:
-            if metric in {'unweighted_unifrac', 'weighted_unifrac'}:
-                dist = diversity.beta_diversity(
-                    metric, self.data, otu_ids=self.data.columns, tree=tree
-                ).data
-            else:
-                dist = diversity.beta_diversity(metric, self.data).data
-                
-            np.save(output, dist)
+            self.alpha_diversity = self.data.apply(getattr(diversity.alpha, metric, axis=1))
 
-        self.beta_diversity = pd.DataFrame(dist, index=self.data.index, columns=self.data.index)
+        self.alpha_diversity = pd.Series(self.alpha_diversity, index=self.samples())
+        self.alpha_diversity.name = metric
 
 class TaxonomyTable(Data):
     ranks = ["Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"]
@@ -341,7 +327,7 @@ class TaxonomyTable(Data):
 
     def load_h5(self, outdir='.', ds='project'):
         with h5py.File(self.h5, 'r') as handle:
-            table = handle.get('taxonomy')[:]
+            table = handle.get('taxonomy')[:].astype(str)
             levels = handle.get('tax_levels')[:].astype(str)
             OTUs = handle.get('OTUs')[:].astype(str)
 
@@ -408,50 +394,74 @@ class TaxonomyTable(Data):
         return self.get_clade(other, threshold=0)
 
     
-class DNAsequences(Data):
+class SequenceData():
 
-    def __init__(self, **kwargs):
-        Data.__init__(self, **kwargs)
-        self.load()
+    def __init__(self, fasta_path=None, tree_path=None, outdir=None):
+        self.fasta_path = fasta_path
+        self.phylip_path = None
+        self.tree_path = tree_path
+        self.outdir = outdir
+
+        if all(not x.is_file() for x in [fasta_path, tree_path] if x is not None):
+            warnings.warn('No fasta or tree files found', UserWarning)
 
     def __repr__(self):
-        return "OTUs: {} sequences".format(len(self.data))
+        return "OTUs: {} sequences".format()
 
-    def load_h5(self, outdir='.', ds='project'):
-        print('Not implemented')
-    
-    def load(self):
-        if self.h5.is_file():
-            self.load_h5()
-            return
+    def get_otus(self):
+        if self.fasta_path is not None:
+            self.otus = [x.split()[0][1:] for x in open(self.fasta_path)
+                         if x.startswith('>')]
+        else:
+            print('Not implemented yet')
 
-        if not self.valid_input():
-            return
+    def regenerate_fasta(self, otus):
+        otus = set(otus)
+        filtered = [entry for entry in SeqIO.parse(self.fasta_path, 'fasta') if entry.id in otus]
+
+        tmp_file = mkdtemp()
+        self.fasta_path = Path(tmp_file, self.fasta_path.name)
+        SeqIO.write(filtered, str(self.fasta_path), 'fasta')
+
+    def update_tree(self, otus, app='phyml', force=False):
         
-        with h5py.File(self.path, 'r') as in_handle:
-            self.data = []
-            for title, seq in SimpleFastaParser(in_handle):
-                (name, descr) = title.split()
-                self.data.append({'name': name, 'descr': descr, 'seq': seq})
+        self.regenerate_fasta(otus)
 
-# class PhyloTree(Data):
+        if app == 'phyml':
+            phylip_path = Path(self.fasta_path.parent, "{}.phy".format(self.fasta_path.stem))
+            self.tree_path = Path(self.outdir, '{}_phyml_tree.txt'.format(phylip_path.stem))
+            
+            if self.tree_path is not None and self.tree_path.is_file() and not force:
+                print('Tree already saved in {}'.format(self.tree_path))
+                return
+                    
+            AlignIO.convert(self.fasta_path, "fasta", phylip_path, "phylip-relaxed")
 
-#     def __init__(self, **kwargs):
-#         Data.__init__(self, **kwargs)
-#         self.load()
+            phyml_cmd = PhymlCommandline(input=str(phylip_path))
+            phyml_cmd()
 
-#     def __repr__(self):
-#         return repr(self.data)
+        elif app == 'FastTree':
+            self.tree_path = Path(self.outdir, '{}.nwk'.format(self.fasta_path.stem))
 
-#     def load_h5(self, outdir='.', ds='project'):
-#         print('Not implemented')
-    
-#     def load(self):
-#         if self.h5.is_file():
-#             self.load_h5()
-#             return
+            if self.tree_path is not None and self.tree_path.is_file() and not force:
+                print('Tree already saved in {}'.format(self.tree_path))
+                return
 
-#         if not self.valid_input():
-#             return
+            with open(str(self.tree_path), 'w') as file_handle:
+                proc = subprocess.Popen(['FastTree', '-nt', str(self.fasta_path)],
+                                        stdout=file_handle)
+            proc.wait()
+
+        else:
+            sys.exit('Unknown application {}'.format(app))
+
+        self.root_tree()
         
-#         self.data = TreeNode.read(str(self.path))
+    def load_tree(self):
+        return TreeNode.read(str(self.tree_path))
+    
+    def root_tree(self):
+        tree = TreeNode.read(str(self.tree_path))
+        tree = tree.root_at_midpoint()
+        tree.write(str(self.tree_path))
+
