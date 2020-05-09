@@ -4,7 +4,7 @@ from itertools import combinations
 
 import pandas as pd
 
-from bokeh.models import Legend
+from bokeh.models import Legend, Title
 from bokeh.io import output_file, save
 from bokeh.layouts import gridplot
 
@@ -17,12 +17,13 @@ def bokeh_legend_out(func):
     def wrapper(*args, **kwargs):
         plots = func(*args, **kwargs)
         
-        if type(plots) != type([]):
+        if not isinstance(plots, list):
             plots = [plots]
 
         for p in plots:
             if not p.title.text:
-                p.title.text = Path(kwargs['output']).stem.replace('_', ' ')
+                p.add_layout(Title(text=Path(kwargs['output']).stem.replace('_', ' '),
+                                   text_font_size=CFG['title_fs']), 'above')
         
             leg_items = []
             for item in p.legend.items[::-1]:
@@ -58,7 +59,7 @@ def bokeh_save(func):
         p = func(*args, **kwargs)
 
         if 'output' in kwargs and kwargs['output'] is not None:
-            output = kwargs['output']
+            output = kwargs.pop('output')
             
             if 'figdir' in args[0].__dict__:
                 output = '{}/{}'.format(args[0].__dict__['figdir'], output)
@@ -80,11 +81,20 @@ def bokeh_cmap(func):
         
         metagenome = args[0]
 
-        if 'hue' not in kwargs:
-            hue_values = args[0].otus()
+        if 'hue' in kwargs:
+            hue_name = kwargs['hue']
         else:
-            hue_values = metagenome.metadata.data[kwargs['hue']].unique()
+            hue_name = ''
+            hue_values = args[0].otus()
 
+        if hue_name:
+            if hue_name in metagenome.metadata.qual_vars:
+                hue_values = sorted(metagenome.metadata.data[hue_name].unique())
+            elif len(args) > 0 and hue_name in args[1].columns:
+                hue_values = sorted(args[1][hue_name].unique())
+            else:
+                sys.exit('Could not find {} in input data'.format(hue_name))
+        
         random = False if 'randomize_palette' not in kwargs else kwargs['randomize_palette']
             
         cmap = dict(zip(hue_values, get_palette(len(hue_values), random=random)))
@@ -108,11 +118,11 @@ def bokeh_facets(func):
 
         metagenome = args[0]
         metagenome.sort_otus()
-        metadata = args[0].metadata.data.reset_index()
+        metadata = args[0].metadata.data
 
-        facet_args = ['facets_{}'.format(dim) for dim in ['x', 'y']]
-        facet_vals = pd.Series({name: kwargs.pop(name, None) for name in facet_args}).dropna()
-        
+        facet_args = ['facet_{}'.format(dim) for dim in ['x', 'y']]
+        facet_vals = pd.Series({name: kwargs.get(name, None) for name in facet_args}).dropna()
+
         if facet_vals.size == 0:
             return func(*args, **kwargs)
 
@@ -126,8 +136,8 @@ def bokeh_facets(func):
         facet_factors = metadata[facet_vals.tolist()]
 
         ncol = 1
-        if 'facets_y' in facet_vals.index:
-            ncol = len(facet_factors[facet_vals['facets_y']].unique())
+        if 'facet_y' in facet_vals.index:
+            ncol = len(facet_factors[facet_vals['facet_y']].unique())
         
         facet_factors = facet_factors.apply(tuple, axis=1)
         levels = facet_factors.drop_duplicates().sort_values()
@@ -144,12 +154,17 @@ def bokeh_facets(func):
 
             plots = func(metagenome_subset, *args[1:], **kwargs)
 
+            if not isinstance(plots, list):
+                plots = [plots]
+
             facet_suffix = ', '.join(
                 ': '.join(info) for info in zip(facet_vals.tolist(), level)
             )
 
             for p in plots:
-                p.title.text = "{} - {}".format(facet_suffix, p.title.text)
+                p.add_layout(Title(text=facet_suffix, text_font_size=CFG['subtitle_fs'],
+                                   text_font_style="italic"), 'above')
+                # p.add_layout(Title(text=current_title, text_font_size=CFG['title_fs']), 'above')
 
             grid += plots
 
@@ -165,23 +180,63 @@ def bokeh_facets(func):
 def pairwise(func):
     def wrapper(*args, **kwargs):
 
-        (metagenome, factor) = args[:2]
+        (metagenome, factor_name) = args[:2]
         
-        if type(factor) == str:
-            factor = metagenome.metadata.data[factor]        
+        factor = metagenome.metadata.factor_data(factor_name)
 
         if 'pairwise' not in kwargs or not kwargs['pairwise']:
-            return func(metagenome, factor, *args[2:], **kwargs)
+            result = func(metagenome, factor, **kwargs)
+            return pd.concat(result)
 
         results = {}
         for (lvl1, lvl2) in combinations(factor.unique(), 2):
-            data = metagenome.copy()
-            subset = data.samples()[(factor == lvl1) | (factor == lvl2)]
-            data.subset_samples(subset)
+            mg = metagenome.copy()
+            subset = mg.samples()[(factor == lvl1) | (factor == lvl2)]
+            mg.subset_samples(subset)
 
-            name = '{}-vs-{}'.format(lvl1, lvl2)
-            results[name] = func(data, factor.loc[subset], *args[2:], **kwargs)
+            name = '{}-vs-{}'.format(*sorted([lvl1, lvl2]))
+            results[name] = func(mg, factor[subset], *args[2:], **kwargs)
 
-        return pd.DataFrame(results)
+        return pd.concat(results).reset_index()
+
+    return wrapper
+
+
+def strata(func):
+    def wrapper(*args, **kwargs):
+        metagenome = args[0]
+
+        if 'strata' not in kwargs or kwargs['strata'] is None:
+            return func(*args, **kwargs)
+
+        strata_names = kwargs['strata']        
+        if not isinstance(strata_names, list):
+            strata_names = [strata_names]
+
+        strata_title = '-'.join(strata_names)
+
+        sample_strata = metagenome.metadata.factor_data(strata_names).apply(tuple, axis=1)
+        strata_combs = sample_strata.drop_duplicates().tolist()
+
+        results = {}
+        for strata in strata_combs:
+            subset = metagenome.samples()[sample_strata == strata]
+
+            if subset.size > 1:            
+                mg = metagenome.copy()
+                mg.subset_samples(subset)
+
+                level_name = '-'.join(strata)
+                kwargs['strata'] = strata
+                result = func(mg, *args[1:], **kwargs)
+                results[level_name] =  result
+
+                if isinstance(result, pd.DataFrame):
+                    results[level_name][strata_title] = strata[0]
+
+        if isinstance(result, pd.DataFrame):
+            return pd.concat(list(results.values()))
+
+        return results
 
     return wrapper

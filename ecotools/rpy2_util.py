@@ -20,7 +20,7 @@ def r_to_pandas(df):
 def metamds(dists, k=3, trymax=200, parallel=3):
     vegan_pkg = importr('vegan')
     dists_r = pandas_to_r(dists)
-    nmds_obj = vegan_pkg.metaMDS(dists_r, k=k, trymax=trymax, parallel=parallel)
+    nmds_obj = vegan_pkg.metaMDS(dists_r, k=k, trymax=trymax, parallel=parallel, trace=False)
     nmds_components = vegan_pkg.scores(nmds_obj)
 
     nmds_components = pd.DataFrame(

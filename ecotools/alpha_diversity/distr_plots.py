@@ -2,10 +2,10 @@ from ecotools.plotting.barplot import stacked_barplot
 from ecotools.plotting.boxplot import boxplot
 
 def taxa_barplot(metagenome, taxa_files=None, taxa=None, clade=False,
-                 norm=False, rank=None, thresh=None, top=-1, **plot_kw):
+                 relabund=False, rank=None, thresh=None, top=-1, **plot_kw):
 
     metagenome = metagenome.copy()
-    metagenome.preprocess(norm=norm, rank=rank, top=top,
+    metagenome.preprocess(relabund=relabund, rank=rank, top=top,
                           taxa_files=taxa_files, taxa=taxa, clade=clade)
 
     # Discard OTU with a min relative abundance below 1%
@@ -19,10 +19,11 @@ def taxa_barplot(metagenome, taxa_files=None, taxa=None, clade=False,
 
     
 def richness_distr(metagenome, metric='n_otus', x=None, hue=None,
-                   taxa_files=None, taxa=None, clade=False, norm=True, rank=None, **plot_kw):
+                   taxa_files=None, taxa=None, clade=False, relabund=True, rank=None, **plot_kw):
 
     metagenome = metagenome.copy()
-    metagenome.preprocess(norm=norm, rank=rank, taxa_files=taxa_files, taxa=taxa, clade=clade)
+    metagenome.preprocess(relabund=relabund, rank=rank,
+                          taxa_files=taxa_files, taxa=taxa, clade=clade)
     metagenome.compute_alpha_diversity(metric)
 
     boxplot(metagenome, x=x, hue=hue, **plot_kw)

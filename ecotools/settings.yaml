@@ -4,6 +4,8 @@ bokeh:
   leg_nrows: 14
   leg_maxcol: 3
   leg_fs: 9pt
+  title_fs: 10pt
+  subtitle_fs: 10pt  
   tools:
     - hover
     - box_zoom

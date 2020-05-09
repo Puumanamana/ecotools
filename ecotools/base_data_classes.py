@@ -1,5 +1,6 @@
 import sys
 import warnings
+
 from pathlib import Path
 import subprocess
 from tempfile import mkdtemp
@@ -8,6 +9,7 @@ import numpy as np
 import pandas as pd
 import h5py
 
+import sklearn.preprocessing
 from skbio import diversity
 from skbio.stats import subsample_counts
 from skbio.tree import TreeNode
@@ -43,6 +45,11 @@ class Data:
             warnings.warn(msg, UserWarning)
             return False
         return True
+
+    def get_column_format(self, index_name, col_name, value_name):
+        data = self.data.stack().rename(value_name)
+        data.index.names = [index_name, col_name]
+        return data
 
     def subset_rows(self, x):
         self.data = self.data.loc[x]
@@ -155,6 +162,7 @@ class MetadataTable(Data):
                    else (col, 'first') for col in self.data.columns)
         
         self.data = self.data.groupby(factors).agg(agg).drop(cols_to_drop, axis=1)
+        self.data.index.names = factors
 
     def factor_data(self, col=None):
         if col is None:
@@ -256,13 +264,36 @@ class AbundanceTable(Data):
     def subset_cols(self, x):
         self.data = self.data.loc[:, x]
         self.data = self.data.loc[self.data.sum(axis=1) > 0, :]
-    
-    def normalize(self):
-        self.data = ((self.data.T) / self.raw_sample_sizes.loc[self.data.index]).T
 
-    def wisconsin(self):
-        self.data = self.data / self.data.max(axis=0)
-        self.data = (self.data.T / self.data.sum(axis=1)).T
+    def to_relative_abundance(self):
+        if self.data.shape[0] < len(self.raw_sample_sizes):
+            print('Cannot normalize by sample size: data already aggregated')
+            return
+        self.data = (self.data.T / self.raw_sample_sizes).T
+        
+    def normalize(self, method, axis='features', inplace=True):
+        data = self.data
+        if axis == 'samples':
+            data = data.T
+
+        if method == 'wisconsin':
+            data = data / data.max(axis=0)
+            data = (data.T / data.sum(axis=1)).T
+        else:
+            normalizer = getattr(sklearn.preprocessing, method)()
+            data = pd.DataFrame(
+                normalizer.fit_transform(data),
+                index=data.index,
+                columns=data.columns
+            )
+
+        if axis == 'samples':
+            data = data.T
+
+        if not inplace:
+            return data
+
+        self.data = data
 
     def subsample(self, level):
         dropped = []
@@ -280,9 +311,30 @@ class AbundanceTable(Data):
 
     def get_most_abundant_otus(self, thresh=0.01):
         proportions = (self.data.T / self.data.sum(axis=1)).max(axis=1)
-        main_otus = proportions.index[proportions > thresh]
+        main_otus = proportions.sort_values(ascending=False).index[proportions > thresh]
 
         return main_otus
+
+
+    def select_otus(self, criteria='prevalence', n=100):
+        if criteria == 'prevalence':
+            scores = (self.data > 0).sum()
+        elif criteria == 'abundance':
+            scores = self.data.sum()
+        elif criteria == 'variance':
+            scores = self.data.std()
+        else:
+            sys.exit('Unknown criteria')
+
+        scores.sort_values(ascending=False, inplace=True)
+        return scores.index[:n]
+    
+    def get_most_variable_otus(self, n=100):
+        proportions = self.data / self.data.sum()
+        variance = proportions.sort_values(ascending=False)
+
+        return variance.index[:n]
+        
 
     def compute_alpha_diversity(self, metric):
 
@@ -352,6 +404,18 @@ class TaxonomyTable(Data):
                     'OTUs',
                     data=self.data.index.to_numpy().astype(otu_dtype)
                 )
+
+    def clean_labels(self, inplace=True, trim=False, maxlen=20):
+        data = self.data.replace(to_replace=r'[\-\(\)/]', value='_', regex=True)
+
+        if trim:
+            data = (data.fillna('')
+                    .applymap(lambda x: '{}{}'.format(x[:maxlen], '...'*(len(x)>maxlen))))
+
+        if not inplace:
+            return data
+
+        self.data = data
 
     def get_ranks(self, info):
         '''
@@ -423,7 +487,7 @@ class SequenceData():
         self.fasta_path = Path(tmp_file, self.fasta_path.name)
         SeqIO.write(filtered, str(self.fasta_path), 'fasta')
 
-    def update_tree(self, otus, app='phyml', force=False):
+    def update_tree(self, otus, app='FastTree', force=False):
         
         self.regenerate_fasta(otus)
 

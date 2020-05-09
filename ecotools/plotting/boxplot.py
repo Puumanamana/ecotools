@@ -25,8 +25,8 @@ def boxplot(metagenome, x=None, hue=None, cmap=None, **kwargs):
         hue = ' '
         metagenome.metadata.add_var(' ', ' ')
 
-    x_values = metagenome.metadata.factor_data(x).unique()
-    hue_values = metagenome.metadata.factor_data(hue).unique()
+    x_values = sorted(metagenome.metadata.factor_data(x).unique())
+    hue_values = sorted(metagenome.metadata.factor_data(hue).unique())
 
     all_values = [(hue_i, x_i) for x_i in x_values for hue_i in hue_values]
 
@@ -76,7 +76,7 @@ def boxplot(metagenome, x=None, hue=None, cmap=None, **kwargs):
         p.segment(x_dodge, f'lower_{hue_i}', x_dodge, f'25%_{hue_i}', line_color="black",
                   source=box_data)
 
-        p.circle(x=x_dodge, y=metric, name='scatter',
+        p.circle(x=x_dodge, y=metric, name='scatter', size=5,
                  line_color='black', fill_color='white', alpha=0.7,
                  source=scatter_data[scatter_data[var_tooltips[hue]]==hue_i].reset_index())
 

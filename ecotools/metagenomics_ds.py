@@ -9,6 +9,8 @@ import pandas as pd
 from skbio import diversity
 
 from ecotools.base_data_classes import AbundanceTable, TaxonomyTable, MetadataTable, SequenceData
+from ecotools.plotting.heatmap import clustermap
+from ecotools.util import guess_subsampling_level
 
 def elt_or_nothing(l):
     if len(set(l)) == 1:
@@ -80,9 +82,20 @@ class MetagenomicDS:
             'samples': len(self.samples()),
             'metadata': len(self.factors()) + len(self.covariates())
         }
+
+    def get_column_format(self):
+        abundance = self.abundance.get_column_format('group', 'OTU', 'abundance').reset_index()
+
+        data = (abundance
+                .merge(self.metadata.data, left_on='group', right_index=True)
+                .merge(self.taxonomy.data, left_on='OTU', right_index=True)
+                .set_index(['group', 'OTU']))
+
+        return data
     
     def to_h5(self):
-        warnings.warn('This method needs more work and might generate errors if an already processed dataset is used')
+        if len(self.raw_sample_sizes) > len(self.samples()):
+            warnings.warn('This method needs more work and might generate errors if an already processed dataset is used')
         if self.h5.is_file():
             self.h5.unlink()
         self.coalesce()
@@ -123,7 +136,7 @@ class MetagenomicDS:
             self.taxonomy.subset_rows(common_otus)
             # later: subset from the fasta + tree as well
 
-        # Last check: when abundance table was subsetted and we
+        # Additional check: when abundance table was subsetted and we
         # - removed otus which created empty samples
         # - or removed samples which creates empty otus
         self.metadata.subset_rows(self.abundance.data.index)
@@ -197,11 +210,12 @@ class MetagenomicDS:
     def subsample(self, level=-1):
         if level < 0:
             sample_sums = self.abundance.data.sum(axis=1)
-            level = int(sample_sums.quantile(q=0.1))
+            level = guess_subsampling_level(sample_sums)
         self.abundance.subsample(level)        
         self.coalesce(otus=False)
+        print('Subsampled at {}. {} samples remaining'.format(level, self.n_samples()))
 
-    def compute_distance_matrix(self, tree=None, metric='braycurtis', cache=False):
+    def compute_distance_matrix(self, metric='braycurtis', cache=False):
 
         sample_sums = self.abundance.data.sum(axis=1)
         if sample_sums.std() > 1:
@@ -216,18 +230,20 @@ class MetagenomicDS:
 
         else:
             if metric in {'unweighted_unifrac', 'weighted_unifrac'}:
+                self.seq_data.update_tree(self.otus())
+                
                 dist = diversity.beta_diversity(
-                    metric, self.data, otu_ids=self.data.columns, tree=tree
+                    metric, self.data, otu_ids=self.data.columns, tree=self.seq_data.load_tree()
                 ).data
             else:
                 dist = diversity.beta_diversity(metric, self.data).data
-                
+    
             np.save(output, dist)
 
         self.distance_matrix = pd.DataFrame(dist, index=self.samples(), columns=self.samples())
         self.coalesce(otus=False)
 
-    def preprocess(self, norm=False, rank=None, top=-1,
+    def preprocess(self, relabund=False, rank=None, top=-1,
                    taxa_files=None, taxa=None, clade=False):
 
         if taxa_files is not None or taxa is not None:
@@ -237,12 +253,35 @@ class MetagenomicDS:
             # Only show annotation at the `rank` level
             self.group_taxa(rank)
 
-        if norm:
+        if relabund:
             # Normalize by sample sum
-            self.abundance.normalize()        
+            self.abundance.to_relative_abundance()
 
     def sort_otus(self):
         ordered_otus = self.abundance.data.sum().sort_values(ascending=False).index
 
         self.abundance.data = self.abundance.data[ordered_otus]
         self.taxonomy.data = self.taxonomy.data.loc[ordered_otus]
+
+    def clustermap(self, rank=None, top=None, **kwargs):
+        mg = self.copy()
+        mg.to_relative_abundance()
+        mg.taxonomy.clean_labels(trim=True)
+
+        if rank is not None:
+            mg.group_taxa(rank)
+
+        if top is None and mg.n_otus() > 100:
+            top = 100
+
+        if top is not None:
+            print('Getting top 100 most prevalent otus')
+            otus = mg.select_otus(criteria='prevalence', n=100)
+            mg.subset_otus(otus=otus)
+
+        if 'output' in kwargs:
+            kwargs['output'] = str(kwargs['output']).replace('.html', '_top-{}.html'.format(top))
+
+        clustermap(mg, standardize=True, cluster_rows=True, cluster_cols=True, **kwargs)
+
+        

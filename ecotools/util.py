@@ -41,7 +41,7 @@ def guess_subsampling_level(sample_sizes):
     model.fit(np.log10(sample_sizes.to_numpy().reshape(-1, 1)))
 
     i_max = np.argmax(model.means_)
-    level = 10**(model.means_[i_max] - 2*model.covariances_[i_max, 0, 0])
+    level = 10**(model.means_[i_max] - 3*model.covariances_[i_max, 0, 0])
 
     if level < 2000:
         level = max(sample_sizes.quantile(0.1), level)
