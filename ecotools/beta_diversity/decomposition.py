@@ -5,14 +5,12 @@ import pandas as pd
 from ecotools.decorators import strata
 from ecotools.rpy2_util import metamds
 from ecotools.util import guess_subsampling_level
-# from ecotools.plotting.scatter import scatterplot
 
 @strata
 def nmds(metagenome, metric='braycurtis', k=3, trymax=500, parallel=3, subsample=True,
-         cache=False, inplace=False,
-         **plot_kw):
+         cache=False, inplace=False, **kw):
 
-    suffix = '_'.join([metric, plot_kw.pop('strata', [''])[0]]).strip('_')
+    suffix = '_'.join([metric, kw.pop('strata', [''])[0]]).strip('_')
     nmds_file = Path(metagenome.outdir, 'NMDS_{}.csv'.format(suffix))
 
     if nmds_file.is_file() and cache:

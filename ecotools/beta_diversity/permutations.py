@@ -5,19 +5,25 @@ from skbio.stats.distance import DistanceMatrix
 from skbio.stats.distance import permanova, permdisp
 
 from ecotools.decorators import pairwise, strata
+from ecotools.rpy2_util import permanova_r
 
 @strata
-@pairwise
 def permanova_test(metagenome, factor, permutations=999, pairwise=False, strata=None):
 
-    distances = DistanceMatrix(metagenome.distance_matrix)
-    result = permanova(distances, factor)
+    factor_data = metagenome.metadata.data[factor]
+    result = permanova_r(metagenome.distance_matrix, factor_data)
 
-    group_counts = factor.value_counts()
-    group_counts.index = ['n1', 'n2']
-    result = pd.concat([result, group_counts])
+    group_counts = factor_data.value_counts()
+    levels = (result.index
+              .str.split(' vs ', expand=True)
+              .to_frame()
+              .applymap(lambda x: group_counts[x]))
+    levels.columns = ['n1', 'n2']
+    levels.index = result.index
 
-    return pd.DataFrame(result).T
+    result = pd.concat([result, levels], axis=1)
+
+    return result
 
 @strata
 @pairwise
@@ -47,8 +53,5 @@ def permutation_test(metagenome, factor, test='permanova', permutations=999,
     else:
         sys.exit('Unknown test')
 
-    results = (results
-               .rename(columns={'level_0': 'comparisons'})
-               .drop(columns='level_1'))
+    return results.reset_index()
 
-    return results

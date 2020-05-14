@@ -1,3 +1,5 @@
+import errno
+import os
 from math import gcd
 from pathlib import Path
 
@@ -32,7 +34,7 @@ def find_pipeline_files(run_dir, otu_thresh=100):
             print(f'Warning: Could not find {name} file')
 
             if name not in {'tree_path', 'species_path', 'fasta_path'}:
-                raise FileNotFoundError
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
             
     return files
 

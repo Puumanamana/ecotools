@@ -31,3 +31,22 @@ def metamds(dists, k=3, trymax=200, parallel=3):
 
     return nmds_components
 
+
+def permanova_r(distances, factors, permutations=9999):
+     pwAdonis_pkg = importr('pairwiseAdonis')
+     dists_r = pandas_to_r(distances)
+     factors_r = pandas_to_r(factors)
+
+     r_model = pwAdonis_pkg.pairwise_adonis(dists_r, factors_r,
+                                            perm=permutations)
+
+     r_res_items = list(r_model.items())
+     index = pd.Index(r_res_items[0][1].levels, name = r_res_items[0][0])
+
+     model_results = pd.DataFrame(
+         dict(r_res_items[1:]),
+         columns=r_model.colnames[1:],
+         index=index
+     ).rename(columns={'p.adjusted': 'pval_adj'})
+
+     return model_results
