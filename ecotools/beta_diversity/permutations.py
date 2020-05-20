@@ -1,17 +1,18 @@
 import sys
 
+import numpy as np
 import pandas as pd
-from skbio.stats.distance import DistanceMatrix
-from skbio.stats.distance import permanova, permdisp
 
-from ecotools.decorators import pairwise, strata
+from ecotools.decorators import strata
 from ecotools.rpy2_util import permanova_r
 
 @strata
-def permanova_test(metagenome, factor, permutations=999, pairwise=False, strata=None):
+def permanova_test(metagenome, factor, permutations=999, strata=None):
 
     factor_data = metagenome.metadata.data[factor]
     result = permanova_r(metagenome.distance_matrix, factor_data)
+    result['log10_p-adj'] = -np.log10(result.pval_adj)
+    result.drop(columns=['Df', 'sig', 'SumsOfSqs', 'p.value', 'pval_adj'], inplace=True)
 
     group_counts = factor_data.value_counts()
     levels = (result.index
@@ -25,33 +26,17 @@ def permanova_test(metagenome, factor, permutations=999, pairwise=False, strata=
 
     return result
 
-@strata
-@pairwise
-def betadisper_test(metagenome, factor, permutations=999, pairwise=False, strata=None):
-
-    distances = DistanceMatrix(metagenome.distance_matrix)
-    result = permdisp(distances, factor)
-
-    group_counts = factor.value_counts()
-    group_counts.index = ['n1', 'n2']
-    result = pd.concat([result, group_counts])
-
-    return pd.DataFrame(result).T
-
 def permutation_test(metagenome, factor, test='permanova', permutations=999,
-                     pairwise=False, strata=None):
+                     strata=None):
 
     if strata is not None and not isinstance(strata, list):
         strata = [strata]
     
     if test.lower() == 'permanova':
         results = permanova_test(metagenome, factor, permutations=permutations,
-                                 pairwise=pairwise, strata=strata)
-    elif test.lower() == 'betadisper':        
-        results = betadisper_test(metagenome, factor, permutations=permutations,
-                                  pairwise=pairwise, strata=strata)
+                                 strata=strata)
     else:
-        sys.exit('Unknown test')
+        sys.exit('Not implemented')
 
     return results.reset_index()
 

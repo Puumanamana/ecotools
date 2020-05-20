@@ -2,11 +2,24 @@ import errno
 import os
 from math import gcd
 from pathlib import Path
+from math import atan2
 
 import numpy as np
+import scipy.linalg
 from sklearn.mixture import GaussianMixture
 
 from bokeh.palettes import linear_palette, Turbo256
+
+def get_str_dtype(data):
+
+    def str_len(x): return len(str(x))
+    
+    if len(data.shape) == 1:
+        max_len = data.map(str_len).max()
+    else:
+        max_len = data.applymap(str_len).max().max()
+
+    return 'S{}'.format(max_len)
 
 def get_palette(n, random=False):
     palette = linear_palette(Turbo256, n)
@@ -16,14 +29,20 @@ def get_palette(n, random=False):
         return [palette[i % n] for i in range(0, p*n, p)]
 
     return palette
+
+def elt_or_nothing(l):
+    if len(set(l)) == 1:
+        return l.iloc[0]
+    return None
  
 def get_attributes(obj, keyword):
     return [x for x in dir(obj) if keyword.lower() in x.lower()]
 
+
 def find_pipeline_files(run_dir, otu_thresh=100):
     files = {
-        'abd_path': Path(run_dir, 'Results/main/details', f'abundance_table_{otu_thresh}.shared'),
-        'tax_path': Path(run_dir, 'Results/main/details', f'annotations_{otu_thresh}.taxonomy'),
+        'abundance_path': Path(run_dir, 'Results/main/details', f'abundance_table_{otu_thresh}.shared'),
+        'taxonomy_path': Path(run_dir, 'Results/main/details', f'annotations_{otu_thresh}.taxonomy'),
         'fasta_path': Path(run_dir, 'Results/main/details', f'otu_repr_{otu_thresh}.filter.fasta'),
         'tree_path': Path(run_dir, 'Results/postprocessing/unifrac', f'FastTree_{otu_thresh}.tre'),
         'species_path': Path(run_dir, 'Results/postprocessing', f'species_{otu_thresh}.csv'),
@@ -50,6 +69,42 @@ def guess_subsampling_level(sample_sizes):
 
     return int(level)
 
-    
 
+def fit_ellipse(X):
     
+    mu = X.mean(axis=0)
+    X_center = X - mu
+    C = X_center.T.dot(X_center)
+    eigvals, eigvecs = scipy.linalg.eig(C)
+
+    unit = np.array([1, 0])
+    rotated = eigvecs.dot(unit)
+    angle = atan2(rotated[1], rotated[0])
+    
+    (a, b) = X_center.dot(eigvecs).max(axis=0)
+
+    return (mu, a, b, angle)
+    
+def filter_metagenome(metagenome, inplace=False, relabund=False,
+                      taxa_files=None, taxa=None, clade=False,
+                      rank=None, abd_thresh=None):
+    if not inplace:
+        metagenome = metagenome.copy()
+
+    if relabund:
+        # Normalize by sample sum
+        metagenome.to_relative_abundance()
+    
+    if taxa_files is not None or taxa is not None:
+        metagenome.subset_otus(taxa_files=taxa_files, clade=clade, taxa=taxa)
+
+    if rank is not None:
+        # Only show annotation at the `rank` level
+        metagenome.group_taxa(rank)
+
+    if abd_thresh is not None:
+        otus = metagenome.get_most_abundant_otus(thresh=abd_thresh)
+        metagenome.subset_otus(otus)
+
+    if not inplace:
+        return metagenome

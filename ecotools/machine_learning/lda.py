@@ -1,11 +1,73 @@
+from pathlib import Path
 import pickle
+
 from sklearn.decomposition import LatentDirichletAllocation
 import pandas as pd
+import numpy as np
 
 import pyLDAvis
 
 from ecotools.plotting.heatmap import clustermap
-from ecotools.decorators import strata
+from ecotools.plotting.facetgrid import BokehFacetGrid
+from ecotools.plotting.scatter import swarmplot
+from ecotools.plotting.boxplot import boxplot
+
+def lda_model(mg, groups=None, k=5, plot=False, **kwargs):
+
+    mg = mg.copy()
+    mg.taxonomy.clean_labels()
+
+    if groups is not None:
+        mg.group_samples(groups)
+
+    model = LatentDirichletAllocation(n_components=k, random_state=42)
+    model.fit(mg.abundance.data)
+
+    sample_topics = pd.DataFrame(
+        model.transform(mg.abundance.data),
+        index=mg.abundance.index,
+        columns=['topic_{:02}'.format(i+1) for i in range(k)]
+    )
+
+    otu_topics = pd.DataFrame(
+        (model.components_.T/model.components_.sum(axis=1)).T,
+        columns=mg.abundance.columns,
+        index=sample_topics.columns
+    )
+
+    return {'samples': sample_topics, 'features': otu_topics}
+
+
+def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
+                rank='Genus', output='lda_plot.html', top=10):
+
+    top_otu = (data['features'].stack()
+               .rename_axis(index=['topic', 'feature'])
+               .rename('weight')
+               .reset_index()
+               .groupby('topic')
+               .apply(lambda x: x.nlargest(top, 'weight').reset_index(drop=True)))
+
+    top_otu[rank] = taxonomy.loc[top_otu.feature, rank].to_numpy()
+
+    top_otu['top_otus'] = (
+        top_otu[[rank, 'weight']]
+        .apply(lambda x: f'{x.weight:.0%} {x[rank]}', axis=1)
+    )
+
+    top_otu = top_otu['top_otus'].unstack()
+    top_otu.columns = ['OTU_{}'.format(x+1) for x in top_otu.columns]
+
+    data = pd.concat([data['samples'], metadata], axis=1)
+    data = data.melt(id_vars=metadata.columns)
+    data = data.merge(top_otu, left_on='variable', right_index=True)
+
+    g = BokehFacetGrid(data=data, hue='variable', row=row, col=col, width=1400,
+                       outdir=Path(output).parent)
+    g.map(boxplot, x=x, y='value', tooltips=top_otu.columns)
+    g.map(swarmplot, x=x, y='value', tooltips=metadata.columns)
+    g.save(Path(output).name)
+
 
 def ldavis_show(metagenome, sample_probs, otu_probs, output=None):
 
@@ -30,66 +92,29 @@ def ldavis_show(metagenome, sample_probs, otu_probs, output=None):
         LDAvis_prepared = pickle.load(f)
     pyLDAvis.save_html(LDAvis_prepared, '{}/{}'.format(metagenome.figdir, output))
     
-def sample_topics_clustermap(metagenome, topics, **kwargs):
+def sample_topics_clustermap(metagenome, topics, output='sample_topics_clustermap.html',
+                             row=None, col=None, **kwargs):
     metadata = metagenome.metadata.factor_data()
     data = pd.concat([topics, metadata], axis=1).rename_axis(index='groups').reset_index()
     data = data.melt(id_vars=list(metagenome.metadata.qual_vars) + ['groups'],
                      var_name='topics', value_name='weight')
 
-    data.set_index(['groups', 'topics'], inplace=True)
+    g = BokehFacetGrid(data=data, outdir=Path(output).parent, row=row, col=col)
+    g.map(clustermap, x='topics', y='groups', z='weight', standardize=False)
+    g.save(Path(output).name)
 
-    clustermap(metagenome, data, value_col='weight', standardize=False, **kwargs)
-
-def otu_topics_clustermap(metagenome, topics, **kwargs):
+def otu_topics_clustermap(metagenome, topics, output='otu_topics_clustermap.html',
+                          col=None, row=None, **kwargs):
     top_otus = topics.index[topics.max(axis=1) > 0.01]
     
     tax = metagenome.taxonomy.data.drop(columns='Species')
     data = (pd.concat([topics, tax], axis=1).loc[top_otus]
             .rename_axis(index='otus')
             .reset_index())
+
     data = data.melt(id_vars=list(tax.columns) + ['otus'],
                      var_name='topics', value_name='weight')
 
-    data.set_index(['otus', 'topics'], inplace=True)
-
-    clustermap(metagenome, table=data, value_col='weight', standardize=False, **kwargs)
-
-@strata
-def lda_model(metagenome, groups=None, k=5, plot=False, strata=None, **kwargs):
-
-    metagenome = metagenome.copy()
-    metagenome.taxonomy.clean_labels()
-
-    if groups is not None:
-        metagenome.group_samples(groups)
-
-    model = LatentDirichletAllocation(n_components=k)
-    model.fit(metagenome.abundance.data)
-
-    sample_topics = pd.DataFrame(
-        model.transform(metagenome.abundance.data),
-        index=metagenome.samples(),
-        columns=['topic_{}'.format(i+1) for i in range(k)]
-    )
-
-    otu_topics = pd.DataFrame(
-        model.components_ / model.components_.sum(axis=1)[:, None],
-        index=sample_topics.columns,
-        columns=metagenome.otus()
-    )
-
-    if plot:
-        suffix = ''
-        if strata is not None:
-            suffix = '_{}'.format('-'.join(strata))
-            
-        sample_topics_clustermap(metagenome, sample_topics,
-                                 output='lda_sample-topics{}.html'.format(suffix), **kwargs)
-        otu_topics_clustermap(metagenome, otu_topics.T, dim='feature',
-                              output='lda_otu-topics{}.html'.format(suffix), **kwargs)        
-        # ldavis_show(metagenome, sample_topics, otu_topics,
-        #             output='ldavis{}.html'.format(suffix))
-    
-
-
-    
+    g = BokehFacetGrid(data=data, outdir=Path(output).parent, row=row, col=col)
+    g.map(clustermap, x='topics', y='otus', z='weight', standardize=False)
+    g.save(Path(output).name)

@@ -6,7 +6,8 @@ from bokeh.models import ColorBar, LinearColorMapper, BasicTicker
 from bokeh.transform import transform
 
 from ecotools.parsing import parse_config
-from ecotools.decorators import bokeh_save, bokeh_facets
+from ecotools.util import filter_metagenome
+from ecotools.plotting.facetgrid import BokehFacetGrid
 
 CFG = parse_config()['bokeh']
 
@@ -34,59 +35,58 @@ def get_clusters(z_data, cluster_samples=True, cluster_features=True,
 
     return (z_data.index[sample_links], z_data.columns[feature_links])
 
-@bokeh_save
-@bokeh_facets
-def clustermap(metagenome, table=None, groups=None, value_col='scores', standardize=True,
-               cluster_samples=True, cluster_features=True, **kwargs):
 
-    if table is None:
-        table = metagenome.get_column_format()
 
-    metagenome = metagenome.copy()
+def clustermap(x=None, y=None, z=None, data=None, standardize=True,
+               cluster_samples=True, cluster_features=True, **plot_kw):
 
+    data_uniq = data.groupby([x[0], y]).agg('first')
+    data_uniq[z] = data.groupby([x[0], y])[z].agg('mean')
+    data_uniq.reset_index(inplace=True)
+    
     if standardize:
-        (samples, features) = table.index.names
-        scores = table.groupby(features)[table.columns[0]].transform(lambda x: (x-x.mean()) / x.std())
+        scores = data_uniq.groupby(x[0])[z].transform(lambda x: (x-x.mean()) / x.std())
     else:
-        scores = table[value_col]
+        scores = data_uniq[z]
+
+    data_uniq['scores'] = scores
+    data_uniq = data_uniq[data_uniq.scores.notnull()]
 
     (samples, features) = get_clusters(
-        scores.unstack(), cluster_samples=cluster_samples, cluster_features=cluster_features
+        data_uniq[x + [y, z]].pivot(y, x[0], values=z),
+        cluster_samples=cluster_samples, cluster_features=cluster_features
     )
-    table['scores'] = scores
 
-    kwargs.pop('output', None)
-
-    p = heatmap(metagenome, table, 'scores', sample_order=samples, feature_order=features, **kwargs)
+    p = heatmap(data=data_uniq, x=x, y=y, z='scores', x_order=features, y_order=samples, **plot_kw)
     return p
 
 
-def heatmap(metagenome, data, value_col, sample_order=None, feature_order=None, **kwargs):
+def heatmap(x=None, y=None, z=None, data=None, x_order=None, y_order=None, p=None,
+            width=1200, height=500, **plot_kw):
 
-    (samples, features) = data.index.names
+    if x_order is None:
+        x_order = data[x[0]].unique()
+    if y_order is None:
+        y_order = data[y].unique()
 
-    if sample_order is None:
-        sample_order = data.index.get_level_values(samples).unique()
-    if feature_order is None:
-        feature_order = data.index.get_level_values(features).unique()
-
-    tooltips = dict(zip(data.columns, '@'+data.columns))
-
-    p = figure(plot_height=max(500, 10*len(feature_order)),
-               plot_width=max(500, len(sample_order)*10),
-               x_range=sample_order.tolist(), y_range=feature_order.tolist(),
-               x_axis_location="above",
-               min_border=CFG['padding'],
-               tools=CFG['tools'], tooltips=list(tooltips.items()))
+    tooltips = zip(data.columns, '@'+data.columns)
+        
+    if p is None:
+        p = figure(height=max(height, 10*len(y_order)),
+                   plot_width=max(width, 10*len(x_order)),
+                   tooltips=list(tooltips), tools=CFG['tools'],
+                   x_range=x_order.tolist(), y_range=y_order.tolist(),
+                   x_axis_location="above",
+                   min_border=CFG['padding'])
 
     mapper = LinearColorMapper(palette='Magma256',
-                               low=data[value_col].min(),
-                               high=data[value_col].max())
+                               low=data[z].min(),
+                               high=data[z].max())
 
-    p.rect(x=samples, y=features, width=1, height=1, source=data.reset_index(),
-           line_color=None, fill_color=transform(value_col, mapper))
+    p.rect(x=x[0], y=y, width=1, height=1, source=data,
+           line_color=None, fill_color=transform(z, mapper))
 
-    color_bar = ColorBar(color_mapper=mapper, formatter=p.xaxis.formatter,
+    color_bar = ColorBar(color_mapper=mapper,
                          ticker=BasicTicker(desired_num_ticks=5),
                          location=(0,0))
     
@@ -99,3 +99,27 @@ def heatmap(metagenome, data, value_col, sample_order=None, feature_order=None, 
     p.xaxis.major_label_orientation = 'vertical'
 
     return p
+
+
+def metagenome_heatmap(mg, y=None, col=None, row=None, output='heatmap.html',
+                       preproc_kw={}, **kwargs):
+
+    mg = filter_metagenome(mg, inplace=False, **preproc_kw)        
+    mg.taxonomy.clean_labels(trim=True)
+
+    if y is None:
+        y = 'group'
+
+    x = 'OTU'
+    if 'rank' in preproc_kw:
+        x = preproc_kw['rank']
+
+    data = mg.get_column_format().reset_index()
+
+    g = BokehFacetGrid(data=data, outdir=mg.figdir, col=col, row=row)
+    g.map(clustermap, x=x, y=y, z='value',
+          standardize=True, cluster_rows=True, cluster_cols=True, **kwargs)
+    g.save(output)
+
+    
+    

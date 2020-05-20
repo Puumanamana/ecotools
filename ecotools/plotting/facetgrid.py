@@ -1,5 +1,3 @@
-import textwrap
-
 import numpy as np
 import pandas as pd
 
@@ -14,25 +12,25 @@ CFG = parse_config()['bokeh']
 
 def format_legend(plot, shorten=True):
 
-    leg_items = plot.legend.items[::-1]
+    leg_it = plot.legend.items[::-1]
+    
+    txt_len = CFG['leg_txt_len']
 
-    if shorten and 'value' in leg_items[0].label:
-        for i, item in enumerate(leg_items):
-            leg_items[i].label['value'] = textwrap.shorten(
-                item.label['value'], CFG['leg_txt_len']
-            )
+    if shorten and 'value' in leg_it[0].label:
+        for i, item in enumerate(leg_it):
+            lab_i = item.label['value']
+            leg_it[i].label['value'] = (lab_i[:txt_len] + '..') if len(lab_i) > txt_len else lab_i
     legends = []
 
     col = 0
-    while leg_items:
+    while leg_it:
         if col == CFG['leg_maxcol']:
-            items = [leg_items.pop() for _ in range(len(leg_items))]
+            items = [leg_it.pop() for _ in range(len(leg_it))]
         else:
-            items = [leg_items.pop() for _ in range(CFG['leg_nrows']) if leg_items]
+            items = [leg_it.pop() for _ in range(CFG['leg_nrows']) if leg_it]
 
-        legend = Legend(items=items, location=(25, 0), glyph_height=25, glyph_width=25,
-                        padding=0, spacing=0,
-                        border_line_color=None,
+        legend = Legend(items=items, location=(20, 0), glyph_height=20, glyph_width=20,
+                        padding=0, spacing=0, border_line_color=None,
                         label_text_font_size=CFG['leg_fs'])
 
         col += 1
@@ -52,13 +50,15 @@ def format_tooltips(tips):
 class BokehFacetGrid:
 
     def __init__(self, hue=None, col=None, row=None, data=None,
-                 width=500, height=500, scale=1, randomize_palette=False, outdir='.'):
+                 row_order=None, col_order=None,
+                 width=600, height=600, scale=1, randomize_palette=False, outdir='.'):
         self.data = data
         self.col = col
         self.row = row
+        self.facet_order = {'col': col_order, 'row': row_order}
         self.hue = hue
-        self.height = scale*height
-        self.width= scale*width
+        self.height = int(scale*height)
+        self.width= int(scale*width)
         self.ncols = 1
         self.nrows = 1
         self.cmap = {}
@@ -76,18 +76,28 @@ class BokehFacetGrid:
 
     def get_row_col_combs(self):
         factors = {}
+        
         if self.row is None and self.col is None:
             return ([True], np.ones(len(self.data), dtype=bool))
+        
         if self.row is not None:
             factors[self.row] = self.data[self.row]
             self.nrows = len(factors[self.row].unique())
+
+            if self.facet_order['row'] is None:
+                self.facet_order['row'] = sorted(factors[self.row].unique())
+                
         if self.col is not None:
             factors[self.col] = self.data[self.col]
             self.ncols = len(factors[self.col].unique())
 
+            if self.facet_order['col'] is None:
+                self.facet_order['col'] = sorted(factors[self.col].unique())            
+
         factor_values = pd.DataFrame(factors).apply(tuple, axis=1)
-        factor_combs = pd.MultiIndex.from_product([sorted(factors[x].unique()) for x in factors],
-                                                  names=list(factors.keys()))
+        factor_combs = pd.MultiIndex.from_product(
+            [x for x in self.facet_order.values() if x is not None],
+            names=list(factors.keys()))
         
         return (factor_combs, factor_values)
         
@@ -98,6 +108,7 @@ class BokehFacetGrid:
 
         if not isinstance(x, list):
             x = [x]
+
         if self.hue is not None:
             x += [self.hue]
         
@@ -116,20 +127,26 @@ class BokehFacetGrid:
                 self.update_cmap(data)
                 data['color'] = [self.cmap[lvl] for lvl in data[self.hue]]
                 kwargs['fill_color'] = 'color'
-                data.sort_values(by=self.hue, inplace=True)
+
+                if func.__name__ != 'stackplot':
+                    data.sort_values(by=self.hue, inplace=True)
 
                 if is_new:
                     kwargs['legend_field'] = self.hue
 
+            if tooltips is not None:
+                kwargs['name'] = func.__name__
+
             p = func(x=x, y=y, data=data, p=prev_plot,
                      width=self.width, height=self.height,
-                     name=func.__name__, **kwargs)
+                     **kwargs)
 
             # add hover tips if any
             if tooltips is not None:
-                tooltips = pd.Series(tooltips)
-                tooltips = list(zip(tooltips, '@'+tooltips))
-                hover_tool = HoverTool(tooltips=tooltips, names=[func.__name__])
+                tooltips_fmt = pd.Series(tooltips)
+                tooltips_fmt = list(zip(tooltips_fmt, '@'+tooltips_fmt))
+                hover_tool = HoverTool(tooltips=tooltips_fmt, names=[func.__name__])
+                hover_tool.point_policy='snap_to_data'
                 p.add_tools(hover_tool)            
             
             # Add facet info in subtitle
@@ -159,23 +176,4 @@ class BokehFacetGrid:
 
         output_file('{}/{}'.format(self.outdir, filename))
         save(grid)
-            
-if __name__ == '__main__':
-
-    from ecotools.plotting.scatter import swarmplot
-    from ecotools.plotting.barplot import stackplot, barplot
-    from ecotools.plotting.boxplot import boxplot
-
-    N = 3000
-    yy = np.random.randint(0, 100, N)
-    gr = np.random.choice(list("abcdef"), N)
-    hu = np.random.choice(list('12'), N)
-    co = np.random.choice(['c1', 'c2'], N)
-
-    df = pd.DataFrame(dict(score=yy, group=gr, hue=hu, col=co))
-
-    g = BokehFacetGrid(data=df, width=1200)
-    # g.map(stackplot, x=['group', 'col'], y='score')
-    g.map(boxplot, x='group', y='score')
-    g.map(swarmplot, x='group', y='score', tooltips=['hue', 'group'])
-    g.save('test_barplot.html')
+        

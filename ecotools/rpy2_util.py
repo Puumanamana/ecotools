@@ -20,7 +20,7 @@ def r_to_pandas(df):
 def metamds(dists, k=3, trymax=200, parallel=3):
     vegan_pkg = importr('vegan')
     dists_r = pandas_to_r(dists)
-    nmds_obj = vegan_pkg.metaMDS(dists_r, k=k, trymax=trymax, parallel=parallel, trace=False)
+    nmds_obj = vegan_pkg.metaMDS(dists_r, k=k, trymax=trymax, parallel=parallel)
     nmds_components = vegan_pkg.scores(nmds_obj)
 
     nmds_components = pd.DataFrame(
@@ -41,12 +41,12 @@ def permanova_r(distances, factors, permutations=9999):
                                             perm=permutations)
 
      r_res_items = list(r_model.items())
-     index = pd.Index(r_res_items[0][1].levels, name = r_res_items[0][0])
+     index = pd.Index(r_res_items[0][1].levels, name=r_res_items[0][0])
 
      model_results = pd.DataFrame(
          dict(r_res_items[1:]),
          columns=r_model.colnames[1:],
          index=index
-     ).rename(columns={'p.adjusted': 'pval_adj'})
+     ).rename(columns={'p.adjusted': 'pval_adj', 'F.Model': 'statistic'})     
 
      return model_results

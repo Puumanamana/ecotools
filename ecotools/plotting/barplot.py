@@ -1,14 +1,14 @@
-import numpy as np
-from bokeh.plotting import figure
-from bokeh.transform import factor_cmap
-from bokeh.models.ranges import FactorRange
-from bokeh.models import Band, ColumnDataSource, HoverTool
-from bokeh.layouts import gridplot
+from pathlib import Path
 
-from ecotools.decorators import bokeh_legend_out, bokeh_save, bokeh_facets, bokeh_cmap
+from bokeh.plotting import figure
+from bokeh.models.ranges import FactorRange
+
+from ecotools.plotting.facetgrid import BokehFacetGrid
 from ecotools.parsing import parse_config
+from ecotools.util import elt_or_nothing
 
 CFG = parse_config()['bokeh']
+
 
 def barplot(x=None, y=None, data=None, stacked=False, width=500, height=500,
             p=None, **plot_kw):
@@ -30,6 +30,7 @@ def barplot(x=None, y=None, data=None, stacked=False, width=500, height=500,
         data[x[1]] = grouped[x[1]].agg('first')
 
     p.vbar(x='x', top='y', width=0.9, source=data, **plot_kw)
+    p.xaxis.major_label_orientation = "vertical"
 
     return p
     
@@ -39,129 +40,108 @@ def stackplot(x=None, y=None, data=None, width=500, height=500, norm=False,
     plot_kw.pop('legend_field', None)
     plot_kw.pop('fill_color', None)    
 
-    grouped = data.groupby(x)
-    count_table = grouped[y].agg('mean').unstack()
+    # If x is provided, we aggregate
+    agg_fn = dict([(col, 'mean') if col==y else (col, elt_or_nothing)
+                   for col in data.columns if col not in x])
+    data = data.groupby(x, as_index=False).agg(agg_fn).dropna(axis=1, how='any')
 
+    # Normalize to ratio to better visualize distribution
     if norm:
-        count_table = (count_table.T / count_table.sum(axis=1)).T
-    
-    x_values = count_table.index.tolist()
-    colors = list(data['color'].unique())
+        data[y] = data.groupby(x[:-1])[y].transform(lambda x: x/x.sum())
 
+    x_values = list(data.groupby(x[:-1]).groups.keys())
+
+    # Interactive features
+    tips = data.drop(columns=x[:-1]+['color']).columns
+    tooltips = list(zip(tips, '@'+tips))
+
+    # If it's the first plot to overlay
     if p is None:
         p = figure(x_range=FactorRange(*x_values), width=width, height=height,
-                   x_axis_label=x[0], y_axis_label=y)
+                   x_axis_label=x[0], y_axis_label=y, tooltips=tooltips)
 
-    data = {col: count_table[col] for col in count_table.columns}
-    data['x'] = x_values
+    # Define all stacked bars
+    grouped = data.groupby(x[0])[y]
+    data['bottom'] = grouped.transform(lambda x: x.shift().cumsum()).fillna(0)
+    data['top'] = grouped.cumsum()
     
-    p.vbar_stack(count_table.columns.tolist(), x='x', width=0.9, color=colors,
-                 legend_label=count_table.columns.tolist(),
-                 source=ColumnDataSource(data), **plot_kw)
+    data_grouped = (data.groupby(x)
+                    .agg('first')
+                    .swaplevel(0, 1))
+
+    stack_levels = list(data[x[-1]].unique())
+
+    # plot each level one by one
+    for i, level in enumerate(stack_levels):
+        data_i = data_grouped.loc[level].assign(**{x[-1]: level})
+        data_i['x'] = data_i.index
+
+        p.vbar(bottom='bottom',
+               top='top',
+               x='x', width=0.8, color='color',
+               source=data_i.reset_index(),
+               legend_label=level,
+               name=level)
+
+    p.xaxis.major_label_orientation = "vertical"
 
     return p
     
 
-
-@bokeh_save
-@bokeh_facets
-@bokeh_legend_out
-@bokeh_cmap
-def stacked_barplot(metagenome, relative=False,**kwargs):
-
-    metagenome = metagenome.copy()
-    table = metagenome.abundance.data
-
-    if relative:
-        table = (table.T / table.sum(axis=1)).T
-
-    tooltips = zip(table.columns, '@'+table.columns+'{0.00%}')
-
-    factors = table.index.tolist()
-
-    width = max(800, metagenome.n_samples()*50) + CFG['padding']
-    height = 400 + CFG['padding']
-
-    colors = [kwargs['cmap'][x] for x in table.columns]
-
-    p = figure(plot_height=height, width=width, min_border=CFG['padding'], x_range=factors,
-               tools=CFG['tools'], tooltips=list(tooltips))
+def taxa_stackplot(feature_table=None, feature_info=None, metagenome=None,
+                   x='variable', row=None, col=None,
+                   output='stackplot.html', norm=True, abd_thresh=0.05,
+                   plot_kw={}, bar_kw={'norm': True}):
     
-    p.vbar_stack(table.columns, x=table.index.name, source=table.reset_index(),
-                 width=.8, color=colors,
-                 legend_label=table.columns.tolist())
-
-    p.xaxis.major_label_orientation = 'vertical'
+    '''Stacked barplot by sample groups
     
-    return p
-
-
-@bokeh_save
-@bokeh_cmap
-def permtest_barplot(metagenome, data, hue=None, strata=None, threshold=0.05, **kwarg):
-    '''
-    index = [strata, comparison]
-    cols = [lvl1, lvl2, -log(p_adj), R2, n1, n2]
+    Args:
+        metagenome (MetagenomeDS): If the other dataframe information is skipped
+        feature_table (pd.DataFrame): Count table (sample x OTU)
+        taxonomy (pd.DataFrame): Taxomomy table (OTU x ranks)
+        metadata (pd.DataFrame): Metadata table (sample x factors)
+        norm (bool): Normalize sample group into ratios
+        abd_thresh (float): Abundance threshold to group taxa into "others"
+                            Must be in ]0, 1[
+    Returns:
+        None
     '''
 
-    hue_values = data[hue]
-
-    data['neg_log_pval'] = -np.log10(data['pval_adj'].astype(float))
-    data.set_index(strata + [hue], inplace=True)
-
-    plot_data = dict(
-        x=sorted(data.index.tolist()),
-        pval=data['pval_adj'].tolist(),
-        neg_log10_pval=data.neg_log_pval.tolist(),
-        R2=data['R2'].tolist(),
-        n1=data.n1.tolist(),
-        n2=data.n2.tolist(),
-    )
-    band_data = dict(
-        x=[-1, len(data) + len(hue_values) + 1],
-        thresh=[-np.log10(threshold)]*2,
-        upper=[data.neg_log_pval.max()*1.2]*2
-    )
-    
-    plots = []
-
-    index_cmap = factor_cmap('x', palette=list(kwarg['cmap'].values()),
-                             factors=sorted(hue_values.unique()), start=1, end=2)
-
-    tooltips = [('R2', '@R2'),
-                ('pval_adj', '@pval'),
-                ('#samples in {} 1'.format(hue), '@n1'),
-                ('#samples in {} 2'.format(hue), '@n2')]
-
-    titles = {
-        'neg_log10_pval': 'Permanova test: -log10[pval_adj]',
-        'R2': 'Permanova test: R2 score'
-    }
-
-    for metric, title in titles.items():
-        p = figure(title=title, x_range=FactorRange(*plot_data['x']), tools=CFG['tools'][1:])
-        p.vbar(x='x', top=metric, width=0.9, source=plot_data, name=metric,
-               line_color="white", fill_color=index_cmap)
-
-        if metric == 'neg_log10_pval':
-            p.line(x='x', y='thresh', source=band_data,
-                   line_color='grey', line_dash='dashed', line_width=1, line_alpha=0.5,
-                   legend_label="{:.0%} significance threshold".format(threshold))
-
-            band = Band(base='x', lower='thresh', upper='upper', level='underlay',
-                        source=ColumnDataSource(band_data),
-                        line_dash='dashed', fill_alpha=0.5, line_width=1, line_color='black')
-            p.add_layout(band)
-            p.legend.background_fill_alpha = 0
-            p.legend.border_line_alpha = 0
-
-        p.add_tools(HoverTool(names=[metric], tooltips=list(tooltips)))
-
-        p.xaxis.major_label_orientation = "vertical"
-        p.xaxis.axis_label_text_font_size = "10pt"
-        plots.append(p)
-
+    if metagenome:
+        table = metagenome.get_column_format().reset_index()
+        tax_cols = [table.columns[1]] + list(metagenome.taxonomy.columns)
         
-    grid = gridplot(plots, ncols=1, plot_width=1300, plot_height=350)
+    else:
+        tax_cols = ['feature'] + list(feature_info.columns)
+        table = (feature_table.T.merge(feature_info, left_index=True, right_index=True)
+                 .rename_axis(index='feature').reset_index()
+                 .melt(id_vars=tax_cols))
 
-    return grid
+    grouping = [xi for xi in [x, row, col] if xi is not None]
+
+    sample_lims = (table.groupby(grouping)['value'].agg(sum) * abd_thresh)
+
+    if len(grouping) > 1:
+        sample_lims = sample_lims.reindex(index=table[grouping].apply(tuple, axis=1))
+    else:
+        sample_lims = sample_lims.reindex(index=table[grouping[0]])
+
+    table.loc[table.value < sample_lims.to_numpy(), tax_cols] = '_Others_'
+
+    g = BokehFacetGrid(data=table, hue=tax_cols[0], row=row, col=col,
+                       outdir=Path(output).parent, width=1000, **plot_kw)
+    g.map(stackplot, x=x, y='value', **bar_kw)
+    g.save(Path(output).name)
+
+    
+def stats_barplot(data, x=None, variables=['log10_p-adj', 'R2'], hue=None, threshold=0.05,
+                  outdir='./', output='stats_barplot.html', plot_kw={}, bar_kw={}):
+
+    data = data.melt(id_vars=[x for x in data.columns if x not in variables])
+
+    g = BokehFacetGrid(data=data, hue=hue, row='variable', row_order=variables, outdir=outdir,
+                       **plot_kw)
+    g.map(barplot, x=x, y='value', tooltips=data.columns, **bar_kw)
+    
+    g.save(output)
+    
