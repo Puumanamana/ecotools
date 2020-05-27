@@ -15,7 +15,8 @@ class TaxonomyTable(BioTable):
         BioTable.__init__(self, **kwargs)
         self.names = ['OTUs', 'levels']
 
-    def to_h5(self, output='taxonomy.h5'):
+    def _to_h5(self, output):
+        
         dtype = get_str_dtype(self.data)
         otu_dtype = get_str_dtype(self.data.index)
 

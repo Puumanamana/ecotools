@@ -10,7 +10,7 @@ from ecotools.parsing import parse_config
 
 CFG = parse_config()['bokeh']
 
-def format_legend(plot, shorten=True):
+def format_legend(plot, leg_order=None, shorten=True):
 
     leg_it = plot.legend.items[::-1]
     
@@ -19,7 +19,10 @@ def format_legend(plot, shorten=True):
     if shorten and 'value' in leg_it[0].label:
         for i, item in enumerate(leg_it):
             lab_i = item.label['value']
-            leg_it[i].label['value'] = (lab_i[:txt_len] + '..') if len(lab_i) > txt_len else lab_i
+            leg_it[i].label['value'] = (lab_i[:txt_len] + '..'
+                                        if len(lab_i) > txt_len
+                                        else lab_i)
+            
     legends = []
 
     col = 0
@@ -50,18 +53,20 @@ def format_tooltips(tips):
 class BokehFacetGrid:
 
     def __init__(self, hue=None, col=None, row=None, data=None,
-                 row_order=None, col_order=None,
-                 width=600, height=600, scale=1, randomize_palette=False, outdir='.'):
+                 row_order=None, col_order=None, hue_order=None,
+                 width=600, height=600, scale=1,
+                 palette='Turbo256', randomize_palette=False, outdir='.'):
         self.data = data
         self.col = col
         self.row = row
-        self.facet_order = {'col': col_order, 'row': row_order}
         self.hue = hue
+        self.ordering = {'row': row_order, 'col': col_order, 'hue': hue_order}
         self.height = int(scale*height)
         self.width= int(scale*width)
         self.ncols = 1
         self.nrows = 1
-        self.cmap = {}
+        self.cmap = None
+        self.palette = palette
         self.randomize_palette = randomize_palette
         self.outdir = outdir
         self.plots = []
@@ -69,10 +74,21 @@ class BokehFacetGrid:
     def update_cmap(self, data):
         if self.hue is None:
             return
-        uniq_hue = data[self.hue].unique()
-        new_hue_values = [x for x in uniq_hue if x not in self.cmap]
-        colors = get_palette(len(new_hue_values), random=self.randomize_palette)
-        self.cmap.update(dict(zip(new_hue_values, colors)))
+
+        if self.ordering.get('hue', None) is None:
+            self.ordering['hue'] = sorted(data[self.hue].unique())
+    
+        self.data[self.hue] = pd.Categorical(self.data[self.hue],
+                                             self.ordering['hue'])
+        self.data.sort_values(by=self.hue, inplace=True)
+
+        if self.cmap is None:
+            colors = get_palette(len(self.ordering['hue']), self.palette,
+                                 random=self.randomize_palette)
+            self.cmap = dict(zip(self.ordering['hue'], colors))
+
+            if '_Others_' in self.cmap:
+                self.cmap['_Others_'] = '#cccccc'
 
     def get_row_col_combs(self):
         factors = {}
@@ -84,70 +100,61 @@ class BokehFacetGrid:
             factors[self.row] = self.data[self.row]
             self.nrows = len(factors[self.row].unique())
 
-            if self.facet_order['row'] is None:
-                self.facet_order['row'] = sorted(factors[self.row].unique())
+            if self.ordering['row'] is None:
+                self.ordering['row'] = sorted(factors[self.row].unique())
                 
         if self.col is not None:
             factors[self.col] = self.data[self.col]
             self.ncols = len(factors[self.col].unique())
 
-            if self.facet_order['col'] is None:
-                self.facet_order['col'] = sorted(factors[self.col].unique())            
+            if self.ordering['col'] is None:
+                self.ordering['col'] = sorted(factors[self.col].unique())            
 
         factor_values = pd.DataFrame(factors).apply(tuple, axis=1)
         factor_combs = pd.MultiIndex.from_product(
-            [x for x in self.facet_order.values() if x is not None],
+            [x for k, x in self.ordering.items() if x is not None and k != 'hue'],
             names=list(factors.keys()))
-        
+
         return (factor_combs, factor_values)
         
-    def map(self, func, x=None, y=None, tooltips=None, **kwargs):
-        (factor_combs, factor_values) = self.get_row_col_combs()
-        
+    def map(self, func, x=None, y=None, tooltips=[], **kwargs):
         is_new = (len(self.plots) == 0)
 
         if not isinstance(x, list):
             x = [x]
 
         if self.hue is not None:
-            x += [self.hue]
-        
+            x += [self.hue] 
+            self.update_cmap(self.data)
+            self.data['color'] = [self.cmap[lvl] for lvl in self.data[self.hue]]
+            kwargs['fill_color'] = 'color'
+            kwargs['hue_order'] = self.ordering['hue']
+
+        (factor_combs, factor_values) = self.get_row_col_combs()        
         for i, pair in enumerate(factor_combs):
-            data = self.data.loc[(factor_values == pair).tolist()].copy()
+            data = self.data.loc[(factor_values == pair)].copy()
             
             if data.size == 0:
                 self.plots.append(None)
                 continue
 
             prev_plot = None
-            if not is_new:
-                prev_plot = self.plots[i]
+            if not is_new: prev_plot = self.plots[i]
             
             if self.hue is not None:
-                self.update_cmap(data)
-                data['color'] = [self.cmap[lvl] for lvl in data[self.hue]]
-                kwargs['fill_color'] = 'color'
-
-                if func.__name__ != 'stackplot':
-                    data.sort_values(by=self.hue, inplace=True)
-
+                tooltips = np.append(tooltips, self.hue)
                 if is_new:
                     kwargs['legend_field'] = self.hue
 
-            if tooltips is not None:
-                kwargs['name'] = func.__name__
-
             p = func(x=x, y=y, data=data, p=prev_plot,
                      width=self.width, height=self.height,
-                     **kwargs)
+                     name=func.__name__, **kwargs)
 
-            # add hover tips if any
-            if tooltips is not None:
-                tooltips_fmt = pd.Series(tooltips)
-                tooltips_fmt = list(zip(tooltips_fmt, '@'+tooltips_fmt))
-                hover_tool = HoverTool(tooltips=tooltips_fmt, names=[func.__name__])
-                hover_tool.point_policy='snap_to_data'
-                p.add_tools(hover_tool)            
+            tooltips_fmt = pd.Series(tooltips, dtype='object')
+            tooltips_fmt = list(zip(tooltips_fmt, '@'+tooltips_fmt))
+            hover_tool = HoverTool(tooltips=tooltips_fmt, names=[func.__name__])
+            hover_tool.point_policy='snap_to_data'
+            p.add_tools(hover_tool)            
             
             # Add facet info in subtitle
             if is_new and pair != True:
@@ -170,9 +177,11 @@ class BokehFacetGrid:
 
     def save(self, filename):
 
+        first_p = next(p for p in self.plots if p is not None)
+            
         grid = gridplot(self.plots, ncols=self.ncols,
-                        plot_width=self.plots[0].plot_width,
-                        plot_height=self.plots[0].plot_height)
+                        plot_width=first_p.plot_width,
+                        plot_height=first_p.plot_height)
 
         output_file('{}/{}'.format(self.outdir, filename))
         save(grid)

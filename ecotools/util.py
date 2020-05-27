@@ -5,10 +5,10 @@ from pathlib import Path
 from math import atan2
 
 import numpy as np
-import scipy.linalg
 from sklearn.mixture import GaussianMixture
+from sklearn.decomposition import PCA
 
-from bokeh.palettes import linear_palette, Turbo256
+import bokeh.palettes
 
 def get_str_dtype(data):
 
@@ -21,14 +21,15 @@ def get_str_dtype(data):
 
     return 'S{}'.format(max_len)
 
-def get_palette(n, random=False):
-    palette = linear_palette(Turbo256, n)
+def get_palette(n, palette='Turbo256', random=False):
+    palette = getattr(bokeh.palettes, palette)
+    colors = bokeh.palettes.linear_palette(palette, n)
 
     if random:
         p = next(i for i in range(n//10, n) if gcd(i, n) == 1)
-        return [palette[i % n] for i in range(0, p*n, p)]
+        return [colors[i % n] for i in range(0, p*n, p)]
 
-    return palette
+    return colors
 
 def elt_or_nothing(l):
     if len(set(l)) == 1:
@@ -69,25 +70,10 @@ def guess_subsampling_level(sample_sizes):
 
     return int(level)
 
-
-def fit_ellipse(X):
-    
-    mu = X.mean(axis=0)
-    X_center = X - mu
-    C = X_center.T.dot(X_center)
-    eigvals, eigvecs = scipy.linalg.eig(C)
-
-    unit = np.array([1, 0])
-    rotated = eigvecs.dot(unit)
-    angle = atan2(rotated[1], rotated[0])
-    
-    (a, b) = X_center.dot(eigvecs).max(axis=0)
-
-    return (mu, a, b, angle)
-    
 def filter_metagenome(metagenome, inplace=False, relabund=False,
                       taxa_files=None, taxa=None, clade=False,
                       rank=None, abd_thresh=None):
+
     if not inplace:
         metagenome = metagenome.copy()
 
@@ -108,3 +94,20 @@ def filter_metagenome(metagenome, inplace=False, relabund=False,
 
     if not inplace:
         return metagenome
+
+def fit_ellipse(X):
+    
+    mu = X.mean(axis=0)
+    X_center = X - mu
+
+    pcs = PCA().fit(X_center).components_
+    angle = atan2(pcs[1, 0], pcs[0, 0])
+
+    u = np.array([np.cos(angle), np.sin(angle)])
+    v = np.array([-np.sin(angle), np.cos(angle)])
+
+    # scalar product on each axis
+    projs = [np.abs((X_center * u).sum(axis=1)), np.abs((X_center * v).sum(axis=1))]
+    (a, b) = np.percentile(projs, 90, axis=1)
+
+    return (mu, a, b, angle)

@@ -20,7 +20,7 @@ class MetadataTable(BioTable):
             *self.data.shape, len(self.qual_vars), len(self.quant_vars)
         )
     
-    def to_h5(self, output='metadata.h5'):
+    def _to_h5(self, output):
         qual_dtype = get_str_dtype(self.data[self.qual_vars])
         col_dtype = get_str_dtype(self.data.columns)
         sample_dtype = get_str_dtype(self.data.index)
@@ -58,7 +58,7 @@ class MetadataTable(BioTable):
                                  .agg(lambda x: len(set(x)))
                                  .max() > 1]
 
-        self.qual_vars = np.setdiff1d(self.qual_vars, cols_to_drop)
+        self.qual_vars = np.setdiff1d(qual_vars, cols_to_drop)
 
         agg = dict((col, 'mean') if col in self.quant_vars
                    else (col, 'first') for col in self.data.columns)
@@ -66,10 +66,13 @@ class MetadataTable(BioTable):
         self.data = self.data.groupby(factors).agg(agg).drop(cols_to_drop, axis=1)
         self.data.index.names = factors
 
-    def factor_data(self, col=None):
-        if col is None:
+    def factor_data(self, cols=None):
+        if cols is None:
             return self.data[self.qual_vars]
-        return self.data[col]
+        if isinstance(cols, str):
+            return self.data[cols]
+        else:
+            return self.data[[col for col in cols]]
 
     def subset_rows(self, x):
         self.data = self.data.loc[x]

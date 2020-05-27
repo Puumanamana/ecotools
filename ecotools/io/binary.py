@@ -5,10 +5,6 @@ import h5py
 
 import pandas as pd
 
-from ecotools.core.abundance_table import AbundanceTable
-from ecotools.core.taxonomy_table import TaxonomyTable
-from ecotools.core.metadata_table import MetadataTable
-
 def from_h5(path, kind=None):
     path = Path(path)
     
@@ -31,9 +27,7 @@ def shared_from_h5(path):
         samples = handle.get('samples')[:].astype(str)
         OTUs = handle.get('OTUs')[:].astype(str)
 
-    table = AbundanceTable(
-        data=pd.DataFrame(table, index=samples, columns=OTUs),
-    )
+    table = pd.DataFrame(table, index=samples, columns=OTUs)
     
     return table
 
@@ -44,9 +38,7 @@ def taxonomy_from_h5(path):
         levels = handle.get('tax_levels')[:].astype(str)
         OTUs = handle.get('OTUs')[:].astype(str)
 
-    table = TaxonomyTable(
-        data=pd.DataFrame(table, index=OTUs, columns=levels)
-    )
+    table = pd.DataFrame(table, index=OTUs, columns=levels)
 
     return table
 
@@ -64,10 +56,6 @@ def metadata_from_h5(path):
         pd.DataFrame(table_quant, index=samples, columns=quant_vars),
     ], axis=1)
 
-    table = MetadataTable(
-        data=table,
-    )
-    
     return table
 
 

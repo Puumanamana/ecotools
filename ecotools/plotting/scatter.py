@@ -12,34 +12,32 @@ from ecotools.plotting.facetgrid import BokehFacetGrid
 CFG = parse_config()['bokeh']
 
 def scatter(x=None, y=None, hue=None, data=None, width=500, height=500, p=None,
-            ellipse=False, s=5, alpha=.5, line_color='black', 
+            ellipse=False, s=5, alpha=.5, line_color='black', hue_order=None,
             **plot_kw):
-
-    if hue is not None:
-        plot_kw['legend_field'] = hue
-        plot_kw['fill_color'] = 'color'
 
     if p is None:
         p = figure(width=width, height=height, min_border=100,
                    x_axis_label=x[0], y_axis_label=y)
 
+    
+
     if ellipse:
-        for hue_i in data[x[-1]].unique():
-            data_subset = data[data[x[-1]] == hue_i]
+        for hue_i in data[hue].unique():
+            data_subset = data[data[hue] == hue_i]
             if len(data_subset) < 3:
                 continue
 
             (mu, a, b, angle) = fit_ellipse(data_subset[[x[0], y]].to_numpy())
             p.ellipse(x=[mu[0]], y=[mu[1]], width=[2*a], height=[2*b], angle=angle,
                       fill_color=data_subset['color'].iloc[0],
-                      line_color=line_color, alpha=alpha)
+                      line_color=line_color, alpha=0.2)
 
     p.circle(x=x[0], y=y, line_color=line_color,
-             source=data, size=10, alpha=0.7, **plot_kw)
+             source=data, size=10, alpha=alpha, **plot_kw)
 
     return p
 
-def swarmplot(x=None, y=None, data=None, width=500, height=500, p=None,
+def swarmplot(x=None, y=None, data=None, width=500, height=500, p=None, hue_order=None,
               jitter_width=0.6, s=5, alpha=0.5, line_color='black', **plot_kw):
 
     data['x'] = data[x].apply(lambda x: x if len(x) == 1 else tuple(x), axis=1)

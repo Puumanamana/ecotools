@@ -32,6 +32,7 @@ def from_txt(path, kind=None, **kwargs):
     parsers = {'shared': shared_from_txt,
                'taxonomy': taxonomy_from_txt,
                'metadata': metadata_from_txt}
+
     parsers.update({x: metadata_from_txt for x in ['csv', 'tsv']})
     parsers.update({x: tree_from_txt for x in ['nwk', 'tre']})
     parsers.update({x: fasta_from_txt for x in ['fa', 'fasta', 'fna']})
@@ -85,13 +86,8 @@ def metadata_from_txt(path, qual_vars=None, sep=',', **kwargs):
 
     return table
 
-
 def fasta_from_txt(path, **kwargs):
-    data  = {x.id: x for x in SeqIO.parse(path, 'fasta')}
-
-    return data
+    return {x.id: x for x in SeqIO.parse(path, 'fasta')}
 
 def tree_from_txt(path, **kwargs):
-    tree = TreeNode.read(str(path))
-
-    return tree
+    return TreeNode.read(str(path))

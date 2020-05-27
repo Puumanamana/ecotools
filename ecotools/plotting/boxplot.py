@@ -10,25 +10,29 @@ from ecotools.plotting.scatter import swarmplot
 
 CFG = parse_config()['bokeh']
 
-def boxplot(x=None, y=None, data=None, width=500, height=500, p=None, **plot_kw):
+def boxplot(x=None, y=None, data=None, hue_order=None, width=500, height=500, p=None, **plot_kw):
 
     grouped = data.groupby(x)
-    meta = grouped.agg(elt_or_nothing).dropna(axis=1)
-    box_data = {col: meta[col] for col in meta.columns}
-
-    quantiles = grouped[y].quantile(q=[0, 0.25, 0.5, 0.75, 1]).unstack()
+    metadata = grouped.agg(elt_or_nothing)
+    
+    quantiles = (grouped[y].apply(lambda x: x.quantile([0, 0.25, 0.5, 0.75, 1]))
+                 .unstack().reindex(metadata.index))
     iqr = quantiles[0.75] - quantiles[0.25]
 
-    box_data.update(dict(
+    box_data = dict(
         q1=quantiles[0.25], q2=quantiles[0.5], q3=quantiles[0.75], iqr=iqr,
-        inf=grouped[y].agg(min), sup=grouped[y].agg(max),
+        inf=quantiles[0], sup=quantiles[1],
         upper=quantiles[0.75] + 1.5*iqr, lower=quantiles[0.25] - 1.5*iqr,
-        x=quantiles.index.tolist(),
-    ))
+        x=quantiles.index,
+    )
+
+    metadata = metadata.loc[quantiles.index].dropna(axis=1, thresh=iqr.count())
+    box_data.update({col: metadata[col] for col in metadata.columns})
 
     if len(x) > 1:
-        box_data['color'] = grouped['color'].agg('first')
-        box_data[x[1]] = grouped[x[1]].agg('first')
+        cmap = data.set_index(x[-1]).color.drop_duplicates()
+        box_data['color'] = cmap.loc[iqr.index.get_level_values(x[-1])]
+        box_data[x[1]] = metadata.index.get_level_values(x[-1])
 
     box_data['lower'] = pd.concat([box_data['lower'], box_data['inf']], axis=1).max(axis=1)
     box_data['upper'] = pd.concat([box_data['upper'], box_data['sup']], axis=1).min(axis=1)

@@ -1,3 +1,5 @@
+import textwrap
+import time
 from itertools import combinations
 
 import pandas as pd
@@ -5,6 +7,19 @@ import pandas as pd
 from ecotools.parsing import parse_config
 
 CFG = parse_config()['bokeh']
+
+def timer(func):
+    def wrapper(*args, **kw):
+        start = time.time()
+        result = func(*args, **kw)
+        end = time.time()
+
+        print(textwrap.dedent(f'''
+        ========{func.__name__}========
+        Ellapsed time: {end-start:.5f}s'''))
+        
+        return result
+    return wrapper
 
 def pairwise(func):
     def wrapper(*args, **kwargs):

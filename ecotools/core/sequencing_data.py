@@ -15,7 +15,7 @@ class SequencingData(BioData):
         return len(self.data)
 
     def subset_otus(self, otus):
-        self.data = [self.data[x] for x in otus]
+        self.data = {x: self.data[x] for x in otus}
 
     def trim_aln(self):
         print('Not implemented')
@@ -32,5 +32,7 @@ class SequencingData(BioData):
 
         return output
         
-    def to_h5(self, output):
-        print('Not implemented')
+    def _to_h5(self, output):
+        print('to_h5() not implemented for {} object. Using to_fasta() instead'
+              .format(self.__class__.__name__))
+        self.to_fasta(output.replace('.h5', '.fasta'))

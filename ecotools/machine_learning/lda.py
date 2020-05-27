@@ -3,7 +3,6 @@ import pickle
 
 from sklearn.decomposition import LatentDirichletAllocation
 import pandas as pd
-import numpy as np
 
 import pyLDAvis
 
@@ -11,12 +10,16 @@ from ecotools.plotting.heatmap import clustermap
 from ecotools.plotting.facetgrid import BokehFacetGrid
 from ecotools.plotting.scatter import swarmplot
 from ecotools.plotting.boxplot import boxplot
+from ecotools.decorators import timer
 
-def lda_model(mg, groups=None, k=5, plot=False, **kwargs):
+@timer
+def lda_model(mg, rank=None, groups=None, k=5, plot=False, **kwargs):
 
     mg = mg.copy()
     mg.taxonomy.clean_labels()
 
+    if rank is not None:
+        mg.group_taxa(rank)
     if groups is not None:
         mg.group_samples(groups)
 
@@ -38,8 +41,9 @@ def lda_model(mg, groups=None, k=5, plot=False, **kwargs):
     return {'samples': sample_topics, 'features': otu_topics}
 
 
+@timer
 def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
-                rank='Genus', output='lda_plot.html', top=10):
+                rank='Genus', output='lda_plot.html', width=1200, top=10):
 
     top_otu = (data['features'].stack()
                .rename_axis(index=['topic', 'feature'])
@@ -62,7 +66,7 @@ def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
     data = data.melt(id_vars=metadata.columns)
     data = data.merge(top_otu, left_on='variable', right_index=True)
 
-    g = BokehFacetGrid(data=data, hue='variable', row=row, col=col, width=1400,
+    g = BokehFacetGrid(data=data, hue='variable', row=row, col=col, width=width,
                        outdir=Path(output).parent)
     g.map(boxplot, x=x, y='value', tooltips=top_otu.columns)
     g.map(swarmplot, x=x, y='value', tooltips=metadata.columns)

@@ -1,6 +1,7 @@
+import copy
+import inspect
 import warnings
 import sys
-import copy
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 from skbio import diversity
 
 from ecotools.util import guess_subsampling_level, elt_or_nothing
+from ecotools.decorators import timer
+from ecotools.rpy2_util import vegdist
 
 from ecotools.core.abundance_table import AbundanceTable
 from ecotools.core.taxonomy_table import TaxonomyTable
@@ -18,24 +21,36 @@ from ecotools.core.phylogenetic_tree import PhylogeneticTree
 
 
 class MetagenomicDS:
+    subclasses = {'abundance': AbundanceTable, 'taxonomy': TaxonomyTable,
+                  'metadata': MetadataTable, 'sequences': SequencingData,
+                  'tree': PhylogeneticTree}
+    
     def __init__(
             self,
             ds='project',
             outdir='.',
-            abundance=None, metadata=None, taxonomy=None, fasta=None, tree=None,
-            **kwargs
+            abundance=None, metadata=None, taxonomy=None, sequences=None, tree=None,
+            distance_matrix=None, alpha_diversity=None,
     ):
+        self.ds = ds
         self.outdir = Path(outdir)
-        self.h5 = Path(outdir, ds+'.h5')
+        self.h5_dir = Path(outdir, f'{ds}_h5-data')
         self.figdir = Path(outdir, 'figures')
-        
-        self.abundance = AbundanceTable(data=abundance)
-        self.taxonomy = TaxonomyTable(data=taxonomy)
-        self.metadata = MetadataTable(data=metadata)
-        self.sequences = SequencingData(data=fasta)
-        self.tree = PhylogeneticTree(data=tree)
 
-        self.distance_matrix = None
+        # Set special attributes (sub-classes).
+        # If the user provides the data, calls the constructor,
+        # otherwise set the attribute directly
+        frame = inspect.currentframe()
+        args, _, _, locals_ = inspect.getargvalues(frame)
+        
+        for arg in MetagenomicDS.subclasses:
+            class_obj = MetagenomicDS.subclasses[arg]
+            if isinstance(locals_[arg], class_obj):
+                setattr(self, arg, locals_[arg])
+            else:
+                setattr(self, arg, class_obj(data=locals_[arg]))
+
+        self.distance_matrix = distance_matrix
 
         self.coalesce()
         self.figdir.mkdir(parents=True, exist_ok=True)
@@ -62,8 +77,14 @@ class MetagenomicDS:
         raise AttributeError(key)
 
     def copy(self):
-        return copy.deepcopy(self)
-    
+        kwargs = {attr: copy.copy(getattr(self, attr))
+                  for attr in inspect.signature(self.__init__).parameters.keys()
+                  if hasattr(self, attr)}
+
+        obj = MetagenomicDS(**kwargs)
+                  
+        return obj
+
     def n_samples(self):
         return self.abundance.data.shape[0]
 
@@ -94,17 +115,20 @@ class MetagenomicDS:
         return data
     
     def to_h5(self):
+        self.h5_dir.mkdir(exist_ok=True)
+        
         if len(self.raw_sample_sizes) > len(self.index):
             warnings.warn('This method needs more work and might generate errors if an already processed dataset is used')
-        if self.h5.is_file():
-            self.h5.unlink()
         self.coalesce()
-        self.abundance.to_h5(f'{self.outdir}/abundance.h5')
-        self.taxonomy.to_h5(f'{self.outdir}/taxonomy.h5')
-        self.metadata.to_h5(f'{self.outdir}/metadata.h5')
+        
+        self.abundance.to_h5(outdir=self.h5_dir, filename='abundance.h5')
+        self.taxonomy.to_h5(outdir=self.h5_dir, filename='taxonomy.h5')
+        self.metadata.to_h5(outdir=self.h5_dir, filename='metadata.h5')
 
         if self.sequences is not None:
-            self.sequences.to_h5(f'{self.outdir}/sequences.h5')
+            self.sequences.to_h5(outdir=self.h5_dir, filename='sequences.h5')
+        if self.tree is not None:
+            self.tree.to_h5(outdir=self.h5_dir, filename='tree.h5')
 
     def to_csv(self):
         self.coalesce()
@@ -128,7 +152,6 @@ class MetagenomicDS:
             if self.distance_matrix is not None:
                 self.distance_matrix = self.distance_matrix.loc[common_samples, common_samples]
                 
-
         if otus:
             is_common = self.abundance.columns.isin(self.taxonomy.index)
         
@@ -151,11 +174,23 @@ class MetagenomicDS:
             self.sequences.subset_otus(self.abundance.columns)
             self.tree.update_tree(self.sequences)
         
-    def subset_samples(self, sample_names=None, sample_file=None):
+    def subset_samples(self, sample_names=None, sample_file=None, inplace=True, **kwargs):
 
         if sample_file is not None:
             sample_names = pd.read_csv(sample_file).iloc[:, 0]
-        
+
+        if kwargs:
+            meta_info = self.metadata.factor_data(kwargs.keys())
+            sample_cond = (meta_info == list(kwargs.values())).all(axis=1)
+            sample_names = self.abundance.index[sample_cond]
+
+            
+        if not inplace:
+            mg = self.copy()
+            mg.abundance.subset_rows(sample_names)
+            mg.coalesce()
+            return mg
+            
         self.abundance.subset_rows(sample_names)
         self.coalesce(otus=False)
 
@@ -193,12 +228,11 @@ class MetagenomicDS:
             if isinstance(group, str):
                 groups[i] = self.metadata.data[group]
 
-        group_names = [group.name for group in groups]
-
         self.abundance.data = self.abundance.data.groupby(groups).agg(fn)
-        self.metadata.group_samples(group_names)
+        self.metadata.group_samples([group.name for group in groups])
 
     def group_taxa(self, rank, discard_unknown=True):
+        rank = rank.title()
         all_ranks = self.taxonomy.columns
         rank_idx = all_ranks.get_loc(rank) + 1
         ranks_to_keep = all_ranks[:rank_idx]
@@ -215,7 +249,8 @@ class MetagenomicDS:
         if tax.isnull().sum().sum() > 0:
             print('Some {}s have different upper level ranks'.format(rank))
             suspects = tax.index[tax.isnull().any(axis=1)]
-            print(self.taxonomy.data.loc[self.taxonomy.data[rank].isin(suspects)])
+            suspects = self.taxonomy.data.loc[self.taxonomy.data[rank].isin(suspects)]
+            print(suspects.groupby(rank).head(3))
 
             tax.dropna(inplace=True)
             self.abundance.data = self.abundance.data.loc[:, tax.index]
@@ -230,37 +265,44 @@ class MetagenomicDS:
         self.coalesce(otus=False)
         print('Subsampled at {}. {} samples remaining'.format(level, self.n_samples()))
 
-    def compute_distance_matrix(self, metric='braycurtis', cache=False):
+    @timer
+    def compute_distance_matrix(self, norm='', metric='braycurtis', cache=False, vegan=False):
 
         sample_sums = self.abundance.data.sum(axis=1)
         if sample_sums.std() > 1:
             warnings.warn("Your samples are not of equal sizes. This is known to affect diversity calculation.", UserWarning)
 
-        metric = metric.lower()
-        print('Calculating {} distance for all samples ({})'.format(metric, self.data.shape[0]))
-
-        output = Path(self.outdir, 'distances_{}_by-{}.npy'.format(metric, self.index.name))
-        if output.is_file() and cache:
-            dist = np.load(output)
-
-        else:
-            if metric in {'unweighted_unifrac', 'weighted_unifrac'}:
-                self.sequences.subset_otus(self.abundance.columns)
-                self.tree.update_tree(self.sequences)
-                
-                dist = diversity.beta_diversity(
-                    metric, self.data, otu_ids=self.columns, tree=self.tree.data
-                ).data
-            else:
-                dist = diversity.beta_diversity(metric, self.data).data
+        output = Path(self.outdir, f'distances_{metric}_{norm}_by-{self.index.name}.npy')
     
-            np.save(output, dist)
+        if output.is_file() and cache:
+            self.distance_matrix = pd.DataFrame(
+                np.load(output), index=self.index, columns=self.index)
+            return
 
-        self.distance_matrix = pd.DataFrame(dist, index=self.index, columns=self.index)
-        self.coalesce(otus=False)
+        self.normalize(norm)
 
-    # def sort_otus(self):
-    #     ordered_otus = self.abundance.data.sum().sort_values(ascending=False).index
+        if vegan:
+            # Use R vegan package
+            self.distance_matrix = vegdist(self.data, metric, r_obj=False)
+        else:
+            # Use skbio
+            if metric.lower().endswith('unifrac'):
+                if self.tree.data is None:
+                    if self.tree_path is None:
+                        self.tree.compute(sequences=self.sequences)
+                    else:
+                        self.tree.load()
+                self.tree.root()
 
-    #     self.abundance.data = self.abundance.data[ordered_otus]
-    #     self.taxonomy.data = self.taxonomy.data.loc[ordered_otus]
+                dist = diversity.beta_diversity(
+                    metric, self.abundance.data,
+                    otu_ids=self.columns, tree=self.tree.data
+                )
+            else:
+                dist = diversity.beta_diversity(metric, self.data)
+
+            self.distance_matrix = pd.DataFrame(dist.data,
+                                                index=self.index, columns=self.index)
+
+        np.save(output, self.distance_matrix)
+

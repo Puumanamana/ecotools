@@ -1,34 +1,38 @@
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-from ecotools.decorators import strata
-from ecotools.rpy2_util import metamds
+from ecotools.decorators import strata, timer
+from ecotools.rpy2_util import metamds, pcoa_ape, pandas_to_distR
 
 
 @strata
-def nmds(metagenome, metric='braycurtis', k=3, trymax=500, parallel=3,
-         subsample=True, subsampling_level=-1,
-         cache=False, inplace=False, **kw):
-
-    suffix = '_'.join([metric, kw.pop('strata', [''])[0]]).strip('_')
-    nmds_file = Path(metagenome.outdir, 'NMDS_{}.csv'.format(suffix))
-
-    if nmds_file.is_file() and cache:
-        nmds_components = pd.read_csv(nmds_file, index_col=0)
-        return nmds_components
-
-    if metagenome.distance_matrix is None:
-        print('Could not find the distance matrix. Did you compute it first?')
-        return
+@timer
+def decompose(mg, decomposition='nmds', metric='bray',
+              cache=False, strata='', return_distances=False,
+              **decomposition_kw):
     
-    if not inplace:
-        metagenome = metagenome.copy()
+    output = Path(mg.outdir, f'{decomposition}_{metric}_{strata}.csv')
 
-    distance_matrix = metagenome.distance_matrix.loc[metagenome.abundance.index,
-                                                     metagenome.abundance.index]
+    if cache and output.is_file():
+        nmds_components = pd.read_csv(output, dtype={0: str})
+        return nmds_components.set_index(nmds_components.columns[0])
 
-    nmds_components = metamds(distance_matrix, trymax=trymax, k=k, parallel=parallel)
-    nmds_components.to_csv(nmds_file)
+    if mg.distance_matrix is None:
+        mg.compute_distance_matrix(metric=metric, vegan=True)
+
+    dists_r = pandas_to_distR(mg.distance_matrix.unstack())
+    if decomposition.lower() == 'nmds':
+        components = metamds(dists_r, **decomposition_kw)
+    elif decomposition.lower() == 'pcoa':
+        components = pcoa_ape(dists_r)
+    else:
+        sys.exit(f'Unknown decomposition method {decomposition}')
+        
+    components.index = mg.index
+
+    # Save results:
+    components.to_csv(output)
     
-    return nmds_components    
+    return components    

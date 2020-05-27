@@ -30,10 +30,11 @@ class AbundanceTable(BioTable):
         self.distance_matrix = None
         self.raw_sample_sizes = self.data.sum(axis=1)        
 
-    def to_h5(self, output='abundance.h5'):
+    def _to_h5(self, output):
+
         sample_dtype = get_str_dtype(self.data.index)
         otu_dtype = get_str_dtype(self.data.columns)
-        
+
         with h5py.File(output, 'a') as handle:
             handle.create_dataset(
                 'abundance',
@@ -71,27 +72,24 @@ class AbundanceTable(BioTable):
             return
         self.data = (self.data.T / self.raw_sample_sizes.loc[self.index]).T
         
-    def normalize(self, method, axis='features', inplace=True):
+    def normalize(self, method, axis='features'):
         data = self.data
         if axis == 'samples':
             data = data.T
 
-        if method == 'wisconsin':
+        if not method:
+            return
+        elif method == 'wisconsin':
             data = data / data.max(axis=0)
             data = (data.T / data.sum(axis=1)).T
         else:
             normalizer = getattr(sklearn.preprocessing, method)()
-            data = pd.DataFrame(
-                normalizer.fit_transform(data),
-                index=data.index,
-                columns=data.columns
-            )
+            data = pd.DataFrame(normalizer.fit_transform(data),
+                                index=data.index,
+                                columns=data.columns)
 
         if axis == 'samples':
             data = data.T
-
-        if not inplace:
-            return data
 
         self.data = data
 

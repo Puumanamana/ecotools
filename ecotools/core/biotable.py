@@ -17,6 +17,14 @@ class BioData:
 
         raise AttributeError(key)
 
+    def to_h5(self, outdir='.', filename='data.h5'):
+        output = Path(outdir, filename)
+
+        if output.is_file():
+            output.unlink()
+
+        self._to_h5(str(output))
+
 class BioTable(BioData):
     def __init__(self, **kwargs):
         BioData.__init__(self, **kwargs)
