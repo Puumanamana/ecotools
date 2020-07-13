@@ -5,10 +5,9 @@ import pandas as pd
 from bokeh.plotting import figure
 from bokeh.models.ranges import FactorRange
 
-from ecotools.plotting.facetgrid import BokehFacetGrid
+from ecotools.plotting.grid import BokehFacetGrid
 from ecotools.parsing import parse_config
 from ecotools.util import elt_or_nothing
-from ecotools.decorators import timer
 
 CFG = parse_config()['bokeh']
 
@@ -38,21 +37,20 @@ def barplot(x=None, y=None, data=None, stacked=False, width=500, height=500,
     return p
 
 
-def stackplot(x=None, y=None, data=None, width=500, height=500, norm=False,
+def stackplot(x=None, y=None, data=None, width=1000, height=800, norm=True,
               hue_order=None, p=None,
               **plot_kw):
 
     for key in ['legend_field', 'fill_color']:
         plot_kw.pop('legend_field', None)
 
-    # If x is provided, we aggregate
-    agg_fn = dict([(col, 'mean') if col==y else (col, elt_or_nothing)
-                   for col in data.columns if col not in x])
-
     x_sums = data.groupby(x[:-1])[y].sum()
 
-    data = (data.groupby(x).agg(agg_fn)
-            .dropna(subset=[y], how='any'))
+    data_y = data.groupby(x).agg('mean')[y]
+    data = data.groupby(x).agg(elt_or_nothing)
+    data[y] = data_y
+    data = data.dropna(subset=[y], how='any')
+
     data.dropna(inplace=True, axis=1, thresh=data.count().max()*0.9)
     
     x_values = data.droplevel(x[-1]).index
@@ -65,8 +63,8 @@ def stackplot(x=None, y=None, data=None, width=500, height=500, norm=False,
         data['abundance'] = data[y].map(lambda x: '{:,}'.format(x))
 
     # Interactive features
-    tooltips = list(zip(data.columns.drop([y, 'color']),
-                        '@'+data.columns.drop([y, 'color'])))
+    tooltips = list(zip(data.columns.drop([y, 'color', ' '], errors='ignore'),
+                        '@'+data.columns.drop([y, 'color', ' '], errors='ignore')))
 
     if x_sums.astype(float).max() > 1.1: # we have the abundance information
         tooltips = [('Sample size', '@group_size')] + tooltips
@@ -87,19 +85,21 @@ def stackplot(x=None, y=None, data=None, width=500, height=500, norm=False,
         x_sums.map(lambda x: f'{x:,}').loc[x_values].to_numpy()
     )
 
-    data = data.swaplevel(0, 1).sort_index()
+    data = data.sort_index()
+    levels = data.index.get_level_values(x[-1]).sort_values().unique()
 
     # plot each level one by one
-    for level in data.index.get_level_values(x[-1]).unique():
-        data_i = data.loc[level].assign(**{x[-1]: level})
+    for level in levels:
+        data_i = data.xs(level, level=x[-1]).assign(**{x[-1]: level})
         to_keep = data_i[['bottom', 'top']].dropna(how='any').index
         data_i = data_i.loc[to_keep]
+        data_i['x'] = data_i.index
 
         p.vbar(bottom='bottom',
                top='top',
-               x=x[0], width=0.8, color='color',
+               x='x', width=0.8, color='color',
                line_color='black', line_width=1.2,
-               source=data_i.reset_index(),
+               source=data_i,
                legend_label=level,
                name=level)
 
@@ -108,11 +108,10 @@ def stackplot(x=None, y=None, data=None, width=500, height=500, norm=False,
     return p
     
 
-@timer
 def taxa_stackplot(feature_table=None, feature_info=None, metagenome=None,
-                   x='variable', row=None, col=None,
+                   x='variable', hue=None, row=None, col=None,
                    output='stackplot.html', norm=True, abd_thresh=0.01,
-                   plot_kw={}, bar_kw={'norm': True}):
+                   plot_kw={}, bar_kw={}):
     
     '''Stacked barplot by sample groups
     
@@ -128,6 +127,8 @@ def taxa_stackplot(feature_table=None, feature_info=None, metagenome=None,
         None
     '''
 
+    x = [xi for xi in [x, hue] if xi is not None]
+
     if metagenome:
         table = metagenome.get_column_format().reset_index()
         tax_cols = [table.columns[1]] + list(metagenome.taxonomy.columns)
@@ -140,7 +141,7 @@ def taxa_stackplot(feature_table=None, feature_info=None, metagenome=None,
                  .melt(id_vars=tax_cols))
 
     hue = tax_cols[0]
-    groups = [xi for xi in [x, row, col] if xi is not None]
+    groups = x + [xi for xi in [row, col] if xi is not None]
 
     # Set threshold for assigning low abundance OTUs to others
     taxa_means = table.groupby(groups+[hue])['value'].agg('mean')
@@ -154,19 +155,21 @@ def taxa_stackplot(feature_table=None, feature_info=None, metagenome=None,
 
     in_others_cond = sample_lims.to_numpy() > taxa_means.to_numpy()
 
-    table.loc[in_others_cond, tax_cols] = '_Others_'
+    filler = 'Others (< {:.0%})'.format(abd_thresh)
+    table.loc[in_others_cond, tax_cols] = filler
 
-    # Sum "others"
-    agg_fn = dict((col, 'sum') if col == 'value' else (col, 'first')
-                  for col in table.columns.drop([sample_var, hue]))
-    table = table.groupby([sample_var, hue], as_index=False).agg(agg_fn)
+    agg_values = table.groupby([sample_var, hue]).value.sum()
+    table = (table.groupby([sample_var, hue]).agg('first')
+             .assign(value=agg_values).reset_index())
     
     # Rank by total abundance
     hue_order = table.groupby(hue).value.sum().sort_values(ascending=False).index
-    hue_order = hue_order.drop('_Others_').append(pd.Index(['_Others_']))
+    
+    if filler in hue_order:
+        hue_order = hue_order.drop(filler).append(pd.Index([filler]))
 
     g = BokehFacetGrid(data=table, row=row, col=col, hue=hue, hue_order=hue_order,
-                       outdir=Path(output).parent, width=1000, **plot_kw)
+                       outdir=Path(output).parent, **plot_kw)
     g.map(stackplot, x=x, y='value', **bar_kw)
     g.save(Path(output).name)
 

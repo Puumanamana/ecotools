@@ -1,11 +1,12 @@
 bokeh:
   padding: 50
-  leg_txt_len: 20
-  leg_nrows: 21
+  leg_txt_len: 15
+  leg_nrows: 30
   leg_maxcol: 3
-  leg_fs: 9pt
+  leg_fs: 8pt
   title_fs: 10pt
   subtitle_fs: 10pt
+  min_per_facet: 3
   tools:
     - hover
     - box_zoom

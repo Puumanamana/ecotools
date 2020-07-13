@@ -75,7 +75,7 @@ def taxonomy_from_txt(path, species_path=None, **kwargs):
     return table
 
 
-def metadata_from_txt(path, qual_vars=None, sep=',', **kwargs):
+def metadata_from_txt(path, qual_vars=None, to_drop=None, sep=',', **kwargs):
 
     if qual_vars is None:
         qual_vars = set()
@@ -83,6 +83,9 @@ def metadata_from_txt(path, qual_vars=None, sep=',', **kwargs):
     table = pd.read_csv(path, index_col=0, sep=sep,
                         dtype={col: str for col in qual_vars})
     table.index.name = 'SampleID'
+
+    if to_drop is not None:
+        table.drop(columns=to_drop, inplace=True)
 
     return table
 

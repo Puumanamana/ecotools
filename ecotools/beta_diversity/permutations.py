@@ -3,17 +3,19 @@ import sys
 import numpy as np
 import pandas as pd
 
-from ecotools.decorators import strata
+from ecotools.decorators import strata, timer
 from ecotools.rpy2_util import permanova_r, pandas_to_distR
 
 @strata
 def permanova_test(metagenome, factor, permutations=999, strata=None):
 
+    metagenome.compute_distance_matrix(cache=True, strata=strata)
     factor_data = metagenome.metadata.data[factor]
+    
     dists_r = pandas_to_distR(metagenome.distance_matrix.unstack())
     result = permanova_r(dists_r, factor_data)
-    result['log10_p-adj'] = -np.log10(result.pval_adj)
-    result.drop(columns=['Df', 'sig', 'SumsOfSqs', 'p.value', 'pval_adj'], inplace=True)
+    result['neg_log10_padj'] = -np.log10(result.pval_adj)
+    result.drop(columns=['Df', 'sig', 'SumsOfSqs', 'p.value'], inplace=True)
 
     group_counts = factor_data.value_counts()
     levels = (result.index
@@ -27,6 +29,7 @@ def permanova_test(metagenome, factor, permutations=999, strata=None):
 
     return result
 
+@timer
 def permutation_test(metagenome, factor, test='permanova', permutations=999,
                      strata=None):
 

@@ -13,6 +13,7 @@ from ecotools.decorators import timer
 class PhylogeneticTree(BioData):
     def __init__(self, **kwargs):
         BioData.__init__(self, **kwargs)
+        self.tree_path = None
 
     def load(self):
         self.data = TreeNode.read(self.tree_path, 'newick')
@@ -30,7 +31,8 @@ class PhylogeneticTree(BioData):
     def to_nwk(self, output):
         if self.data is not None:
             self.data.write(output)
-            # Phylo.write(self.data, output, 'newick')
+        else:
+            print('No sequence data. Skipping')
 
     def _to_h5(self, output):
         print('to_h5() not implemented for {} object. Using to_nwk() instead'

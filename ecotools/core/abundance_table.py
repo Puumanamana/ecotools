@@ -131,6 +131,13 @@ class AbundanceTable(BioTable):
 
         scores.sort_values(ascending=False, inplace=True)
         return scores.index[:n]
+
+
+    def group_samples(self, groups, fn='mean'):
+        self.data = self.data.groupby(groups).agg(fn)
+
+        if str(fn) == 'sum' or (callable(fn) and fn.__name__ == 'sum'):
+            self.raw_sample_sizes = self.raw_sample_sizes.groupby(groups).agg(fn)
     
     def compute_alpha_diversity(self, metric):
 

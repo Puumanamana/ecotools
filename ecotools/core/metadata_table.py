@@ -14,6 +14,13 @@ class MetadataTable(BioTable):
         
         self.quant_vars = self.data.select_dtypes(include='number').columns.to_numpy()
         self.qual_vars = self.data.drop(self.quant_vars, axis=1).columns.to_numpy()
+
+        for var in self.qual_vars:
+            if self.data[var].str.strip().str.isdigit().all():
+                max_len = self.data[var].apply(len).max()
+                self.data[var] = self.data[var].apply(lambda x: '{:0{}}'.format(int(x), max_len))
+
+        self.data[self.qual_vars] = self.data[self.qual_vars].apply(pd.Categorical)
         
     def __repr__(self):
         return "Metadata table: {} samples, {} columns ({} factors, {} covariates)".format(
@@ -49,7 +56,7 @@ class MetadataTable(BioTable):
                     data=self.data.index.to_numpy().astype(sample_dtype)
                 )
 
-    def group_samples(self, factors):
+    def group_samples(self, factors, fn='mean'):
         # keep the columns with a unique value when aggregated
         qual_vars = np.setdiff1d(self.qual_vars, factors)
         
@@ -60,31 +67,38 @@ class MetadataTable(BioTable):
 
         self.qual_vars = np.setdiff1d(qual_vars, cols_to_drop)
 
-        agg = dict((col, 'mean') if col in self.quant_vars
+        agg = dict((col, fn) if col in self.quant_vars
                    else (col, 'first') for col in self.data.columns)
         
         self.data = self.data.groupby(factors).agg(agg).drop(cols_to_drop, axis=1)
         self.data.index.names = factors
 
     def factor_data(self, cols=None):
+        
         if cols is None:
-            return self.data[self.qual_vars]
+            cols = self.qual_vars
         if isinstance(cols, str):
-            return self.data[cols]
-        else:
-            return self.data[[col for col in cols]]
+            cols = [cols]
+
+        data = self.data[cols]
+
+        return data
 
     def subset_rows(self, x):
         self.data = self.data.loc[x]
         self.data = self.data.loc[:, self.data.count() > 0]
 
-    def add_var(self, name, values):
-        try:
-            values = pd.to_numeric(values)
-            self.quant_vars = np.append(self.quant_vars, name)
-        except:
-            self.qual_vars = np.append(self.qual_vars, name)
-
+    def add_var(self, name, values, convert=True, order=None):
+        if convert:
+            try:
+                values = pd.to_numeric(values)
+                self.quant_vars = np.append(self.quant_vars, name)
+            except:
+                values = pd.Categorical(values)
+                if order is not None:
+                    values.reorder_categories(order, inplace=True)
+                self.qual_vars = np.append(self.qual_vars, name)
+                    
         self.data.loc[:, name] = values
 
     def drop_vars(self, *names):

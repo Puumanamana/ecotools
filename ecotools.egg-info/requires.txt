@@ -6,5 +6,6 @@ bokeh>=1.4
 scipy
 scikit-learn
 scikit-bio
-rpy2
+rpy2>=3.3.0
 tzlocal
+pyyaml

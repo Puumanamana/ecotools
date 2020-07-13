@@ -6,13 +6,15 @@ from ecotools.io.binary import from_h5
 
 
 def metagenome_from_files(
-        outdir='.', h5_dir='.',
+        outdir='.', h5dir='.',
         ds='project',
         abundance_path=None,
         taxonomy_path=None,
+        species_path=None,
         metadata_path=None,
         fasta_path=None,
         tree_path=None,
+        parser_args={},
         **kwargs):
 
     inputs = {}
@@ -30,8 +32,10 @@ def metagenome_from_files(
         elif path is None:
             continue
         else:
-            data = from_txt(path, **kwargs)
+            data = from_txt(path, species_path=species_path, **parser_args)
 
         inputs[name] = data
 
-    return MetagenomicDS(ds=ds, outdir=outdir, **inputs)
+    mg = MetagenomicDS(ds=ds, outdir=outdir, **inputs, **kwargs)
+
+    return mg

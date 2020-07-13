@@ -21,7 +21,10 @@ class SequencingData(BioData):
         print('Not implemented')
 
     def to_fasta(self, output='sequences.fasta'):
-        SeqIO.write(self.data.values(), output, 'fasta')
+        if self.data is not None:
+            SeqIO.write(self.data.values(), output, 'fasta')
+        else:
+            print('No sequence data. Skipping')
 
     def to_phylip(self, output='sequences.phylip'):
         tmp = mkdtemp()

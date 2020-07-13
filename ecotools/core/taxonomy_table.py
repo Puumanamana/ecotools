@@ -5,7 +5,7 @@ import pandas as pd
 import h5py
 
 from ecotools.core.biotable import BioTable
-from ecotools.util import get_str_dtype
+from ecotools.util import get_str_dtype, elt_or_nothing
 
 
 class TaxonomyTable(BioTable):
@@ -47,6 +47,30 @@ class TaxonomyTable(BioTable):
             return data
 
         self.data = data
+
+    def group_taxa(self, rank, discard_unknown=False):
+        if rank == self.index.name:
+            return
+        rank = rank.title()
+        rank_idx = self.columns.get_loc(rank) + 1
+        ranks_to_keep = self.columns[:rank_idx]
+        rank_annot = self.data[rank]
+        
+        if discard_unknown:
+            # Remove any rank with unknown label
+            valid = ~(rank_annot.str.contains('uncultured|unclassified|unknown'))
+            self.data = self.data.loc[self.columns[valid]]
+
+        self.data = (self.data.groupby(rank)[ranks_to_keep]
+                     .agg(elt_or_nothing))
+        
+        if self.data.isnull().sum().sum() > 0:
+            print('Some {}s have different upper level ranks'.format(rank))
+            suspects = self.data.index[self.data.isnull().any(axis=1)]
+            suspects = self.data.loc[self.data[rank].isin(suspects)]
+            print(suspects.groupby(level=0).head(3))
+
+            self.data.dropna(inplace=True)
 
     def get_ranks(self, info):
         '''

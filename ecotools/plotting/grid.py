@@ -21,8 +21,7 @@ def format_legend(plot, leg_order=None, shorten=True):
             lab_i = item.label['value']
             leg_it[i].label['value'] = (lab_i[:txt_len] + '..'
                                         if len(lab_i) > txt_len
-                                        else lab_i)
-            
+                                        else lab_i)            
     legends = []
 
     col = 0
@@ -52,100 +51,93 @@ def format_tooltips(tips):
 
 class BokehFacetGrid:
 
-    def __init__(self, hue=None, col=None, row=None, data=None,
-                 row_order=None, col_order=None, hue_order=None, paired_colors=False,
+    def __init__(self, data=None,
+                 hue=None, col=None, row=None,
+                 hue_order=None, col_order=None, row_order=None,
                  width=600, height=600, scale=1,
-                 palette='Turbo256', randomize_palette=False, outdir='.'):
+                 palette='Turbo256', randomize_palette=False, paired_colors=False, outdir='.'):
         self.data = data
-        self.col = col
-        self.row = row
+        self.cols = col
+        self.rows = row
         self.hue = hue
-        self.ordering = {'row': row_order, 'col': col_order, 'hue': hue_order}
         self.height = int(scale*height)
         self.width= int(scale*width)
-        self.ncols = 1
-        self.nrows = 1
+        # self.ncols = 1
+        # self.nrows = 1
         self.cmap = None
-        self.paired_colors = paired_colors
-        self.palette = palette
-        self.randomize_palette = randomize_palette
+        self.colors = {'palette': palette, 'random': randomize_palette, 'paired': paired_colors}
         self.outdir = outdir
         self.plots = []
+        
+        self.format_data(rows=row_order, cols=col_order, hue=hue_order)
+        self.update_cmap()
 
-    def update_cmap(self, data):
-        if self.hue is None:
-            return
+    def format_data(self, **kwargs):
+        '''
+        Add fake columns in case no hue, col or row arguments is supplied
+        '''
+        for (attr, categories) in kwargs.items():
+            if getattr(self, attr) is None:
+                setattr(self, attr, ' ')
+                self.data[' '] = ' '
 
-        if self.ordering.get('hue', None) is None:
-            self.ordering['hue'] = sorted(data[self.hue].unique())
-    
-        self.data[self.hue] = pd.Categorical(self.data[self.hue],
-                                             self.ordering['hue'])
+            name = getattr(self, attr)
+            if categories is None:
+                categories = self.data[name].sort_values().unique()
+                            
+            self.data[name] = pd.Categorical(self.data[name], categories)
+
         self.data.sort_values(by=self.hue, inplace=True)
-
+        
+    def update_cmap(self):
         if self.cmap is None:
-            colors = get_palette(len(self.ordering['hue']), self.palette,
-                                 random=self.randomize_palette, paired=self.paired_colors)
-            self.cmap = dict(zip(self.ordering['hue'], colors))
+            categories = self.data[self.hue].cat.categories
+            colors = get_palette(len(categories), **self.colors)
+            self.cmap = dict(zip(categories, colors))
 
             for label in self.cmap:
                 if label.startswith('Others'):
                     self.cmap[label] = '#cccccc'
 
     def get_row_col_combs(self):
-        factors = {}
-        
-        if self.row is None and self.col is None:
-            return ([True], np.ones(len(self.data), dtype=bool))
-        
-        if self.row is not None:
-            factors[self.row] = self.data[self.row]
-            self.nrows = len(factors[self.row].unique())
-
-            if self.ordering['row'] is None:
-                self.ordering['row'] = sorted(factors[self.row].unique())
-                
-        if self.col is not None:
-            factors[self.col] = self.data[self.col]
-            self.ncols = len(factors[self.col].unique())
-
-            if self.ordering['col'] is None:
-                self.ordering['col'] = sorted(factors[self.col].unique())            
-
-        factor_values = pd.DataFrame(factors).apply(tuple, axis=1)
+        '''
+        Get boolean vectors to subset rows and columns
+        ''' 
+        factor_values = self.data[[self.rows, self.cols]].apply(tuple, axis=1)
         factor_combs = pd.MultiIndex.from_product(
-            [x for k, x in self.ordering.items() if x is not None and k != 'hue'],
-            names=list(factors.keys()))
+            [self.data[self.rows].cat.categories, self.data[self.cols].cat.categories],
+            names=[self.rows, self.cols]
+        )
 
         return (factor_combs, factor_values)
         
     def map(self, func, x=None, y=None, tooltips=[], rotate=0, **kwargs):
-        is_new = (len(self.plots) == 0)
+        is_first_map = (len(self.plots) == 0)
 
         if not isinstance(x, list):
             x = [x]
 
-        if self.hue is not None:
+        if self.hue != ' ':
             x += [self.hue] 
-            self.update_cmap(self.data)
             self.data['color'] = [self.cmap[lvl] for lvl in self.data[self.hue]]
             kwargs['fill_color'] = 'color'
-            kwargs['hue_order'] = self.ordering['hue']
+            kwargs['hue_order'] = self.data[self.hue].cat.categories
 
         (factor_combs, factor_values) = self.get_row_col_combs()        
         for i, pair in enumerate(factor_combs):
             data = self.data.loc[(factor_values == pair)].copy()
             
-            if data.size == 0:
+            if data.size < CFG['min_per_facet']:
                 self.plots.append(None)
                 continue
 
             prev_plot = None
-            if not is_new: prev_plot = self.plots[i]
+            if not is_first_map: prev_plot = self.plots[i]
             
-            if self.hue is not None:
+            if self.hue != ' ':
+                # Add legend
                 tooltips = np.append(tooltips, self.hue)
-                if is_new:
+                if is_first_map:
                     kwargs['legend_field'] = self.hue
 
             x = [xi for xi in x if xi is not None]
@@ -166,9 +158,10 @@ class BokehFacetGrid:
             p.add_tools(hover_tool)            
             
             # Add facet info in subtitle
-            if is_new and pair != True:
+            if is_first_map and pair != (' ', ' '):
                 subtitle = Title(
-                    text=', '.join('{}: {}'.format(*it) for it in zip(factor_combs.names, pair)),
+                    text=', '.join('{}: {}'.format(*it) for it in zip(factor_combs.names, pair)
+                                   if it[1] != ' '),
                     text_font_size=CFG['subtitle_fs'],
                     text_font_style="italic"
                 )
@@ -193,7 +186,7 @@ class BokehFacetGrid:
 
         first_p = next(p for p in self.plots if p is not None)
             
-        grid = gridplot(self.plots, ncols=self.ncols,
+        grid = gridplot(self.plots, ncols=len(self.data[self.cols].cat.categories),
                         plot_width=first_p.plot_width,
                         plot_height=first_p.plot_height)
 

@@ -5,13 +5,13 @@ from bokeh.models.ranges import FactorRange
 
 from ecotools.parsing import parse_config
 from ecotools.util import filter_metagenome, elt_or_nothing
-from ecotools.plotting.facetgrid import BokehFacetGrid
+from ecotools.plotting.grid import BokehFacetGrid
 from ecotools.plotting.scatter import swarmplot
 
 CFG = parse_config()['bokeh']
 
 def boxplot(x=None, y=None, data=None, hue_order=None, width=500, height=500, p=None, **plot_kw):
-
+    
     grouped = data.groupby(x)
     metadata = grouped.agg(elt_or_nothing)
     
@@ -24,15 +24,17 @@ def boxplot(x=None, y=None, data=None, hue_order=None, width=500, height=500, p=
         inf=quantiles[0], sup=quantiles[1],
         upper=quantiles[0.75] + 1.5*iqr, lower=quantiles[0.25] - 1.5*iqr,
         x=quantiles.index,
+        group_size=grouped[y].agg(len),
+        not_null=grouped[y].agg(lambda x: sum(x>0))
     )
 
-    metadata = metadata.loc[quantiles.index].dropna(axis=1, thresh=iqr.count())
+    metadata = metadata.loc[quantiles.index].dropna(axis=1, thresh=iqr.count()).reset_index()
     box_data.update({col: metadata[col] for col in metadata.columns})
 
     if len(x) > 1:
         cmap = data.set_index(x[-1]).color.drop_duplicates()
         box_data['color'] = cmap.loc[iqr.index.get_level_values(x[-1])]
-        box_data[x[1]] = metadata.index.get_level_values(x[-1])
+        box_data[x[1]] = metadata[x[-1]]
 
     box_data['lower'] = pd.concat([box_data['lower'], box_data['inf']], axis=1).max(axis=1)
     box_data['upper'] = pd.concat([box_data['upper'], box_data['sup']], axis=1).min(axis=1)
@@ -54,9 +56,9 @@ def boxplot(x=None, y=None, data=None, hue_order=None, width=500, height=500, p=
     p.vbar('x', 0.7, 'q1', 'q2', line_color='black', source=box_data, **plot_kw)
 
     # whiskers (almost-0 height rects simpler than segments)
-    w_height = iqr.median() / 100
-    p.rect('x', 'lower', 0.2, w_height, line_color="black", source=box_data)
-    p.rect('x', 'upper', 0.2, w_height, line_color="black", source=box_data)
+    w_height = iqr.median() / 200
+    p.rect('x', 'lower', 0.2, w_height, line_color="black", fill_color='black', source=box_data)
+    p.rect('x', 'upper', 0.2, w_height, line_color="black", fill_color='black', source=box_data)
 
     p.xgrid.grid_line_color = None
     p.xaxis.major_label_orientation = "vertical"
@@ -64,17 +66,19 @@ def boxplot(x=None, y=None, data=None, hue_order=None, width=500, height=500, p=
     return p
     
 
-def diversity_plot(metagenome, x=None, y=None, hue=None, col=None,
-                   output='boxplot.html',
+def diversity_plot(metagenome, x=None, y=None, hue=None, col=None, row=None,
+                   output='boxplot.html', points=True,
                    preproc_kw={}, plot_kw={}, box_kw={}, scatter_kw={}):
 
     mg = filter_metagenome(metagenome, inplace=False, **preproc_kw)
     mg.compute_alpha_diversity(y)
     data = pd.concat([mg.alpha_diversity, mg.metadata.factor_data()], axis=1)
 
-    g = BokehFacetGrid(data=data, hue=hue, col=col, outdir=metagenome.figdir, **plot_kw)
+    g = BokehFacetGrid(data=data, hue=hue, row=row, col=col,
+                       outdir=metagenome.figdir, **plot_kw)
     g.map(boxplot, x=x, y=y, **box_kw)
-    g.map(swarmplot, x=x, y=y, tooltips=mg.metadata.qual_vars, **scatter_kw)
+    if points:
+        g.map(swarmplot, x=x, y=y, tooltips=mg.metadata.qual_vars, **scatter_kw)
     g.save(output)
 
 

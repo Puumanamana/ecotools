@@ -7,7 +7,7 @@ from bokeh.transform import transform
 
 from ecotools.parsing import parse_config
 from ecotools.util import filter_metagenome
-from ecotools.plotting.facetgrid import BokehFacetGrid
+from ecotools.plotting.grid import BokehFacetGrid
 
 CFG = parse_config()['bokeh']
 

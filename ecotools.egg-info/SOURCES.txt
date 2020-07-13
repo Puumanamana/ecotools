@@ -1,16 +1,9 @@
 README.rst
 setup.py
 ecotools/__init__.py
-ecotools/correlations.py
-ecotools/group_distances.py
-ecotools/load_and_convert.py
-ecotools/main.py
-ecotools/nmds.py
-ecotools/parser.py
-ecotools/pathogens.py
-ecotools/plot_permanova_results.py
-ecotools/subset.py
-ecotools/taxa_stackplot.py
+ecotools/decorators.py
+ecotools/parsing.py
+ecotools/rpy2_util.py
 ecotools/util.py
 ecotools.egg-info/PKG-INFO
 ecotools.egg-info/SOURCES.txt
@@ -19,3 +12,5 @@ ecotools.egg-info/entry_points.txt
 ecotools.egg-info/not-zip-safe
 ecotools.egg-info/requires.txt
 ecotools.egg-info/top_level.txt
+test/test_io.py
+test/test_plot.py
