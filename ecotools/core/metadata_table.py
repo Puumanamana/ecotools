@@ -67,10 +67,11 @@ class MetadataTable(BioTable):
 
         self.qual_vars = np.setdiff1d(qual_vars, cols_to_drop)
 
-        agg = dict((col, fn) if col in self.quant_vars
-                   else (col, 'first') for col in self.data.columns)
-        
-        self.data = self.data.groupby(factors).agg(agg).drop(cols_to_drop, axis=1)
+        grouped = self.data.groupby(factors)
+        qual_data = grouped[self.qual_vars].first()
+        quant_data = grouped[self.quant_vars].agg(fn)
+
+        self.data = pd.concat([qual_data, quant_data], axis=1)
         self.data.index.names = factors
 
     def factor_data(self, cols=None):
@@ -98,7 +99,12 @@ class MetadataTable(BioTable):
                 if order is not None:
                     values.reorder_categories(order, inplace=True)
                 self.qual_vars = np.append(self.qual_vars, name)
-                    
+        else:
+            if pd.api.types.is_numeric_dtype(pd.Series(values)):
+                self.quant_vars = np.append(self.quant_vars, name)
+            else:
+                self.qual_vars = np.append(self.qual_vars, name)
+
         self.data.loc[:, name] = values
 
     def drop_vars(self, *names):

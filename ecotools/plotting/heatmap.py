@@ -40,7 +40,7 @@ def get_clusters(z_data, cluster_samples=True, cluster_features=True,
 def clustermap(x=None, y=None, z=None, data=None, standardize=True,
                cluster_samples=True, cluster_features=True, **plot_kw):
 
-    data_uniq = data.groupby([x[0], y]).agg('first')
+    data_uniq = data.groupby([x[0], y]).agg(lambda x: x.iloc[0] if len(x.unique()) == 1 else None)
     data_uniq[z] = data.groupby([x[0], y])[z].agg('mean')
     data_uniq.reset_index(inplace=True)
     

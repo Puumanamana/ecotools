@@ -110,7 +110,7 @@ class BokehFacetGrid:
             self.ncols = len(factors[self.col].unique())
 
             if self.ordering['col'] is None:
-                self.ordering['col'] = sorted(factors[self.col].unique())            
+                self.ordering['col'] = sorted(factors[self.col].unique())
 
         factor_values = pd.DataFrame(factors).apply(tuple, axis=1)
         factor_combs = pd.MultiIndex.from_product(

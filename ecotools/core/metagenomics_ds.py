@@ -230,7 +230,7 @@ class MetagenomicDS:
         self.abundance.subset_rows(sample_names)
         self.coalesce(otus=False)
 
-    def subset_otus(self, otus=None, taxa=None, clade=False):
+    def subset_otus(self, otus=None, taxa=None, clade=False, sep=',', header='infer'):
 
         if taxa is not None:
             otus = self.taxonomy.get_ranks(taxa)
@@ -239,7 +239,7 @@ class MetagenomicDS:
             if not isinstance(otus, list):
                 otus = [otus]
 
-            ids = pd.concat([pd.read_csv(f).iloc[:, 0] for f in otus])
+            ids = pd.concat([pd.read_csv(f, sep=sep, header=header).iloc[:, 0] for f in otus])
 
             if ids.name.lower() == 'species':
                 if clade:

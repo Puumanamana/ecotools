@@ -8,7 +8,7 @@ from ecotools.rpy2_util import phyloseq_ordinate
 @strata
 @timer
 def ordinate(mg, subsample=False, otu_subset=None, covariates=None, k=2,
-             cache=False, strata=''):
+             cache=False, strata='', sep=','):
     
     if subsample:
         mg.subsample(plot=True)
@@ -22,7 +22,7 @@ def ordinate(mg, subsample=False, otu_subset=None, covariates=None, k=2,
 
     if otu_subset is not None:
         if isinstance(otu_subset, Path):
-            mg.subset_otus(otu_subset)
+            mg.subset_otus(otu_subset, sep=sep)
 
     phylo_obj = mg.to_phyloseq()
     result = phyloseq_ordinate(phylo_obj, mg.run['ordination'], mg.run['metric'],
