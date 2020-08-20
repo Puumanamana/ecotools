@@ -7,7 +7,7 @@ from bokeh.transform import jitter
 from bokeh.models import FactorRange
 
 from ecotools.parsing import parse_config
-from ecotools.util import fit_ellipse, fit_hull, elt_or_nothing
+from ecotools.util import fit_ellipse, fit_hull, filter_groups
 from ecotools.plotting.grid import BokehFacetGrid
 
 CFG = parse_config()['bokeh']
@@ -52,7 +52,10 @@ def scatter(x=None, y=None, data=None, width=500, height=500, p=None,
 def swarmplot(x=None, y=None, data=None, width=500, height=500, p=None, hue_order=None,
               jitter_width=0.6, s=5, alpha=0.5, line_color='black', **plot_kw):
 
-    data['x'] = data[x].apply(lambda x: x if len(x) == 1 else tuple(x), axis=1)
+    if len(x) == 1:
+        data['x'] = data[x]
+    else:
+        data['x'] = list(data[x].itertuples(index=False, name=None))
 
     if p is None:
         p = figure(x_range=FactorRange(*data['x'].unique()), 
@@ -75,7 +78,7 @@ def lineplot(x=None, y=None, data=None, hue=None, width=800, height=800, p=None,
                                           inf=lambda x: max(x.min(), x.mean()-x.std()),
                                           sup=lambda x: min(x.max(), x.mean()+x.std()))
 
-    hover_data = data.groupby(x).agg(elt_or_nothing)
+    hover_data = data.groupby(x).pipe(filter_groups)
 
     if 'color' in hover_data.columns:
         hover_data['color'] = hover_data.groupby(x[-1]).color.transform(lambda x: x.dropna().iloc[0])
@@ -96,7 +99,7 @@ def lineplot(x=None, y=None, data=None, hue=None, width=800, height=800, p=None,
     lines_y = (lines_y.ffill() + lines_y.bfill()) / 2
 
     if hue is not None:
-        lines_color = line_data.groupby(x[-1])['color'].first()
+        lines_color = line_data.groupby(x[-1])['color'].nth(0, dropna='all') 
         lines_x = [[(x_i, hue_i) for x_i in line_data[x[0]].unique()] for hue_i in lines_color.index]
         lines_y = lines_y.groupby(line_data[x[-1]]).agg(list).tolist()
     else:

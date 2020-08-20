@@ -59,6 +59,11 @@ class AbundanceTable(BioTable):
     def subset_rows(self, x):
         self.data = self.data.loc[x]
         self.data = self.data.loc[:, self.data.sum() > 0]
+        
+        try:
+            self.raw_sample_sizes = self.raw_sample_sizes.loc[self.data.index]
+        except KeyError:
+            self.raw_sample_sizes = None
     
     def subset_cols(self, x):
         self.data = self.data.loc[:, x]
@@ -146,7 +151,7 @@ class AbundanceTable(BioTable):
         elif metric == 'richness':
             self.alpha_diversity = (self.data > 0).sum(axis=1)
         else:
-            self.alpha_diversity = self.data.apply(getattr(diversity.alpha, metric, axis=1))
+            self.alpha_diversity = self.data.apply(getattr(diversity.alpha, metric), axis=1)
 
         self.alpha_diversity = pd.Series(self.alpha_diversity, index=self.index)
         self.alpha_diversity.name = metric

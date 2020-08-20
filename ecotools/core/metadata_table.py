@@ -3,7 +3,7 @@ import pandas as pd
 import h5py
 
 from ecotools.core.biotable import BioTable
-from ecotools.util import get_str_dtype
+from ecotools.util import get_str_dtype, filter_groups
 
 
 class MetadataTable(BioTable):
@@ -58,22 +58,10 @@ class MetadataTable(BioTable):
 
     def group_samples(self, factors, fn='mean'):
         # keep the columns with a unique value when aggregated
-        qual_vars = np.setdiff1d(self.qual_vars, factors)
-        
-        cols_to_drop = qual_vars[self.data
-                                 .groupby(factors)[qual_vars]
-                                 .agg(lambda x: len(set(x)))
-                                 .max() > 1]
-
-        self.qual_vars = np.setdiff1d(qual_vars, cols_to_drop)
-
-        grouped = self.data.groupby(factors)
-        qual_data = grouped[self.qual_vars].first()
-        quant_data = grouped[self.quant_vars].agg(fn)
-
-        self.data = pd.concat([qual_data, quant_data], axis=1)
+        self.data = (self.data.groupby(factors)
+                     .pipe(filter_groups, numeric_data=self.quant_vars, fn=fn))
         self.data.index.names = factors
-
+        
     def factor_data(self, cols=None):
         
         if cols is None:

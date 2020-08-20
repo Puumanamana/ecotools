@@ -42,7 +42,8 @@ def lda_model(mg, groups=None, k=5, **kwargs):
 
 
 @timer
-def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None, rank='Genus', output='lda_plot.html', width=1400, top=10):
+def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
+                rank='Genus', output='lda_plot.html', width=1400, top=10):
 
     top_otu = (data['features'].stack()
                .rename_axis(index=['topic', 'feature'])
@@ -65,10 +66,13 @@ def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None, 
     data = data.melt(id_vars=metadata.columns)
     data = data.merge(top_otu, left_on='variable', right_index=True)
 
-    g = BokehFacetGrid(data=data, hue='variable', row=row, col=col, width=width,
+    idx_size = len(data.variable.unique()) * len(data[x].unique())
+    width = max(width, idx_size*15)
+    
+    g = BokehFacetGrid(data=data, hue=x, row=row, col=col, width=width,
                        outdir=Path(output).parent)
-    g.map(boxplot, x=x, y='value', tooltips=top_otu.columns)
-    g.map(swarmplot, x=x, y='value', tooltips=metadata.columns)
+    g.map(boxplot, x='variable', y='value', tooltips=top_otu.columns)
+    g.map(swarmplot, x='variable', y='value', tooltips=metadata.columns)
     g.save(Path(output).name)
 
 

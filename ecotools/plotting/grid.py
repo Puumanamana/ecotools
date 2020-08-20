@@ -54,16 +54,15 @@ class BokehFacetGrid:
     def __init__(self, data=None,
                  hue=None, col=None, row=None,
                  hue_order=None, col_order=None, row_order=None,
-                 width=600, height=600, scale=1,
+                 width=600, height=600, scale=1, col_wrap=None,
                  palette='Turbo256', randomize_palette=False, paired_colors=False, outdir='.'):
-        self.data = data
+        self.data = data.copy()
         self.cols = col
         self.rows = row
         self.hue = hue
-        self.height = int(scale*height)
-        self.width= int(scale*width)
-        # self.ncols = 1
-        # self.nrows = 1
+        self.col_wrap = col_wrap
+        self.height = 'auto' if height=='auto' else int(scale*height)
+        self.width = 'auto' if width=='auto' else int(scale*width)
         self.cmap = None
         self.colors = {'palette': palette, 'random': randomize_palette, 'paired': paired_colors}
         self.outdir = outdir
@@ -185,10 +184,13 @@ class BokehFacetGrid:
     def save(self, filename):
 
         first_p = next(p for p in self.plots if p is not None)
+
+        ncols = len(self.data[self.cols].cat.categories)
+        if self.col_wrap is not None:
+            ncols = self.col_wrap
             
-        grid = gridplot(self.plots, ncols=len(self.data[self.cols].cat.categories),
-                        plot_width=first_p.plot_width,
-                        plot_height=first_p.plot_height)
+        grid = gridplot(self.plots, ncols=ncols,
+                        plot_width=first_p.plot_width, plot_height=first_p.plot_height)
 
         output_file('{}/{}'.format(self.outdir, filename))
         save(grid)

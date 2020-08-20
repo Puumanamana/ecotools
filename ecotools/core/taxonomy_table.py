@@ -5,7 +5,7 @@ import pandas as pd
 import h5py
 
 from ecotools.core.biotable import BioTable
-from ecotools.util import get_str_dtype, elt_or_nothing
+from ecotools.util import get_str_dtype
 
 
 class TaxonomyTable(BioTable):
@@ -61,18 +61,10 @@ class TaxonomyTable(BioTable):
             valid = ~(rank_annot.str.contains('uncultured|unclassified|unknown'))
             self.data = self.data.loc[self.columns[valid]]
 
-        self.data = (self.data.groupby(rank)[ranks_to_keep]
-                     .agg(elt_or_nothing))
+        self.data = self.data.groupby(rank)[ranks_to_keep].nth(0)
         
-        if self.data.isnull().sum().sum() > 0:
-            print('Some {}s have different upper level ranks'.format(rank))
-            suspects = self.data.index[self.data.isnull().any(axis=1)]
-            suspects = self.data.loc[self.data[rank].isin(suspects)]
-            print(suspects.groupby(level=0).head(3))
 
-            self.data.dropna(inplace=True)
-
-    def get_ranks(self, info):
+    def get_otus_from_pairs(self, info):
         '''
         Get either of the rank, values in info (logical or)
         '''

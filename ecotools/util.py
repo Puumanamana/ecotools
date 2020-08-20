@@ -1,4 +1,5 @@
 import errno
+import warnings
 import os
 from pathlib import Path
 from math import atan2, pi, gcd
@@ -45,11 +46,25 @@ def get_palette(n, palette='Turbo256', random=False, paired=False):
 
     return colors
 
-def elt_or_nothing(l):
-    if len(set(l)) == 1:
-        return l.iloc[0]
-    return None
- 
+
+def filter_groups(grouped, numeric=None, fn='mean', approx=False):
+
+    if approx:
+        # Just look at the largest group
+        is_uniq = grouped.get_group(grouped.size().idxmax()).nunique() == 1
+        cols_to_keep = grouped.obj.columns[is_uniq].drop(grouped.grouper.names)
+    else:
+        is_uniq = grouped.nunique().max() == 1
+        cols_to_keep = grouped.obj.columns.drop(grouped.grouper.names)[is_uniq]
+
+    data = grouped[cols_to_keep].nth(0)
+
+    if numeric is not None:
+        numeric_data = grouped[numeric].agg(fn)
+        data = pd.concat([data.drop(columns=numeric, errors='ignore'), numeric_data], axis=1)
+        
+    return data
+    
 def get_attributes(obj, keyword):
     return [x for x in dir(obj) if keyword.lower() in x.lower()]
 
@@ -74,6 +89,9 @@ def find_pipeline_files(run_dir, otu_thresh=100):
 
 def guess_subsampling_level(counts, plot=True, min_value=100):
 
+    if np.std(counts) < 10:
+        return np.min(counts)
+    
     log_counts = np.log10(counts[counts > min_value])
     (_, sd) = scipy.stats.norm.fit(log_counts)
 

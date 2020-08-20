@@ -4,10 +4,10 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from bokeh.plotting import figure
 from bokeh.models import ColorBar, LinearColorMapper, BasicTicker
 from bokeh.transform import transform
+import colorcet as cc
 
 from ecotools.parsing import parse_config
-from ecotools.util import filter_metagenome
-from ecotools.plotting.grid import BokehFacetGrid
+from ecotools.util import filter_groups
 
 CFG = parse_config()['bokeh']
 
@@ -40,10 +40,11 @@ def get_clusters(z_data, cluster_samples=True, cluster_features=True,
 def clustermap(x=None, y=None, z=None, data=None, standardize=True,
                cluster_samples=True, cluster_features=True, **plot_kw):
 
-    data_uniq = data.groupby([x[0], y]).agg(lambda x: x.iloc[0] if len(x.unique()) == 1 else None)
-    data_uniq[z] = data.groupby([x[0], y])[z].agg('mean')
-    data_uniq.reset_index(inplace=True)
-    
+    data_uniq = (data.reset_index().groupby([x[0], y])
+                 .pipe(filter_groups, numeric=[z], fn='mean', approx=True)
+                 .dropna(subset=[z], how='any')
+                 .reset_index())
+
     if standardize:
         scores = data_uniq.groupby(x[0])[z].transform(lambda x: (x-x.mean()) / x.std())
     else:
@@ -58,6 +59,7 @@ def clustermap(x=None, y=None, z=None, data=None, standardize=True,
     )
 
     p = heatmap(data=data_uniq, x=x, y=y, z='scores', x_order=features, y_order=samples, **plot_kw)
+    
     return p
 
 
@@ -70,7 +72,7 @@ def heatmap(x=None, y=None, z=None, data=None, x_order=None, y_order=None, p=Non
         y_order = data[y].unique()
 
     tooltips = zip(data.columns, '@'+data.columns)
-        
+
     if p is None:
         p = figure(height=max(height, 10*len(y_order)),
                    plot_width=max(width, 10*len(x_order)),
@@ -79,7 +81,7 @@ def heatmap(x=None, y=None, z=None, data=None, x_order=None, y_order=None, p=Non
                    x_axis_location="above",
                    min_border=CFG['padding'])
 
-    mapper = LinearColorMapper(palette='Magma256',
+    mapper = LinearColorMapper(palette=cc.fire,
                                low=data[z].min(),
                                high=data[z].max())
 
@@ -99,27 +101,3 @@ def heatmap(x=None, y=None, z=None, data=None, x_order=None, y_order=None, p=Non
     p.xaxis.major_label_orientation = 'vertical'
 
     return p
-
-
-def metagenome_heatmap(mg, y=None, col=None, row=None, output='heatmap.html',
-                       preproc_kw={}, **kwargs):
-
-    mg = filter_metagenome(mg, inplace=False, **preproc_kw)        
-    mg.taxonomy.clean_labels(trim=True)
-
-    if y is None:
-        y = 'group'
-
-    x = 'OTU'
-    if 'rank' in preproc_kw:
-        x = preproc_kw['rank']
-
-    data = mg.get_column_format().reset_index()
-
-    g = BokehFacetGrid(data=data, outdir=mg.figdir, col=col, row=row)
-    g.map(clustermap, x=x, y=y, z='value',
-          standardize=True, cluster_rows=True, cluster_cols=True, **kwargs)
-    g.save(output)
-
-    
-    

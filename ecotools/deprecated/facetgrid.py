@@ -56,7 +56,7 @@ class BokehFacetGrid:
                  row_order=None, col_order=None, hue_order=None, paired_colors=False,
                  width=600, height=600, scale=1,
                  palette='Turbo256', randomize_palette=False, outdir='.'):
-        self.data = data
+        self.data = data.copy()
         self.col = col
         self.row = row
         self.hue = hue
@@ -94,7 +94,7 @@ class BokehFacetGrid:
 
     def get_row_col_combs(self):
         factors = {}
-        
+
         if self.row is None and self.col is None:
             return ([True], np.ones(len(self.data), dtype=bool))
         
@@ -112,13 +112,14 @@ class BokehFacetGrid:
             if self.ordering['col'] is None:
                 self.ordering['col'] = sorted(factors[self.col].unique())
 
-        factor_values = pd.DataFrame(factors).apply(tuple, axis=1)
+        factor_values = pd.Series(zip(*[fact for fact in factors.values()]),
+                                  index=self.data.index)
         factor_combs = pd.MultiIndex.from_product(
             [x for k, x in self.ordering.items() if x is not None and k != 'hue'],
             names=list(factors.keys()))
 
         return (factor_combs, factor_values)
-        
+
     def map(self, func, x=None, y=None, tooltips=[], rotate=0, **kwargs):
         is_new = (len(self.plots) == 0)
 
