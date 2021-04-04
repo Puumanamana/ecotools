@@ -68,7 +68,7 @@ def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
 
     idx_size = len(data.variable.unique()) * len(data[x].unique())
     width = max(width, idx_size*15)
-    
+
     g = BokehFacetGrid(data=data, hue=x, row=row, col=col, width=width,
                        outdir=Path(output).parent)
     g.map(boxplot, x='variable', y='value', tooltips=top_otu.columns)
@@ -79,15 +79,15 @@ def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
 def ldavis_show(metagenome, sample_probs, otu_probs, output=None):
 
     taxa_info = (metagenome.taxonomy
-                 .data.loc[metagenome.otus(), ['Class', 'Genus']]
-                 .apply(lambda x: '_'.join(x), axis=1))
+                 .data.loc[metagenome.abundance.columns, ['Class', 'Genus']]
+                 .apply(lambda x: ';'.join(x), axis=1))
 
     LDAvis_prepared = pyLDAvis.prepare(
-        otu_probs, # (topics x otus)
+        otu_probs.values, # (topics x otus)
         sample_probs, # (samples x topics)
         metagenome.abundance.data.sum(axis=1), # (samples)
         taxa_info, # (otus)
-        metagenome.abundance.data.sum(axis=0)) # (samples)
+        metagenome.abundance.data.sum(axis=0).values) # (otus)
 
     LDAvis_data_filepath = '{}/ldavis_prep.pkl'.format(str(metagenome.outdir))
 

@@ -117,8 +117,9 @@ class BokehFacetGrid:
             x = [x]
 
         if self.hue != ' ':
-            x += [self.hue] 
-            self.data['color'] = [self.cmap[lvl] for lvl in self.data[self.hue]]
+            x += [self.hue]
+            self.data['color'] = pd.Categorical([self.cmap[lvl] for lvl in self.data[self.hue]],
+                                                self.cmap.values())
             kwargs['fill_color'] = 'color'
             kwargs['hue_order'] = self.data[self.hue].cat.categories
 

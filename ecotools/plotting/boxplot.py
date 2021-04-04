@@ -32,7 +32,7 @@ def boxplot(x=None, y=None, data=None, hue_order=None, width='auto', height=500,
     box_data.update({col: metadata[col] for col in metadata.columns})
 
     if len(x) > 1:
-        cmap = data.set_index(x[-1]).color.drop_duplicates()
+        cmap = pd.Series(dict(zip(data[x[-1]].cat.categories, data.color.cat.categories)))
         box_data['color'] = cmap.loc[iqr.index.get_level_values(x[-1])]
         box_data[x[1]] = metadata[x[-1]]
 

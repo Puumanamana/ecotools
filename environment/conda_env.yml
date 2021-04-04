@@ -1,0 +1,23 @@
+name: ecotools
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python =3.7
+  - r >=3.5
+  - bokeh >=1.4
+  - biopython
+  - numpy
+  - h5py
+  - scipy
+  - scikit-learn
+  - scikit-bio
+  - pyyaml
+  - ipdb
+  - colorcet
+  - pyldavis
+  - rpy2 >=3.3
+  - bioconductor-phyloseq=1.28
+  - r-vegan
+  - r-ape
