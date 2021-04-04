@@ -55,7 +55,8 @@ class BokehFacetGrid:
                  hue=None, col=None, row=None,
                  hue_order=None, col_order=None, row_order=None,
                  width=600, height=600, scale=1, col_wrap=None,
-                 palette='Turbo256', randomize_palette=False, paired_colors=False, outdir='.'):
+                 palette='Turbo256', randomize_palette=False, paired_colors=False, outdir='.',
+                 sort=True):
         self.data = data.copy()
         self.cols = col
         self.rows = row
@@ -68,10 +69,10 @@ class BokehFacetGrid:
         self.outdir = outdir
         self.plots = []
         
-        self.format_data(rows=row_order, cols=col_order, hue=hue_order)
+        self.format_data(rows=row_order, cols=col_order, hue=hue_order, sort=sort)
         self.update_cmap()
 
-    def format_data(self, **kwargs):
+    def format_data(self, sort=True, **kwargs):
         '''
         Add fake columns in case no hue, col or row arguments is supplied
         '''
@@ -86,7 +87,8 @@ class BokehFacetGrid:
                             
             self.data[name] = pd.Categorical(self.data[name], categories)
 
-        self.data.sort_values(by=self.hue, inplace=True)
+        if sort:
+            self.data.sort_values(by=self.hue, inplace=True)
         
     def update_cmap(self):
         if self.cmap is None:

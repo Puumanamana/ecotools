@@ -4,12 +4,11 @@ import pickle
 from sklearn.decomposition import LatentDirichletAllocation
 import pandas as pd
 
-import pyLDAvis
-
 from ecotools.plotting.heatmap import clustermap
 from ecotools.plotting.grid import BokehFacetGrid
 from ecotools.plotting.scatter import swarmplot
 from ecotools.plotting.boxplot import boxplot
+from ecotools.plotting.barplot import barplot
 from ecotools.decorators import timer
 
 @timer
@@ -30,13 +29,13 @@ def lda_model(mg, groups=None, k=5, **kwargs):
         model.transform(mg.abundance.data),
         index=mg.abundance.index,
         columns=['topic_{:02}'.format(i+1) for i in range(k)]
-    )
+    ).rename_axis(index='sample', columns='community')
 
     otu_topics = pd.DataFrame(
         (model.components_.T/model.components_.sum(axis=1)).T,
         columns=mg.abundance.columns,
         index=sample_topics.columns
-    )
+    ).rename_axis(index='community', columns='OTU')
 
     return {'samples': sample_topics, 'features': otu_topics}
 
@@ -69,14 +68,15 @@ def lda_boxplot(data, metadata=None, taxonomy=None, x=None, row=None, col=None,
     idx_size = len(data.variable.unique()) * len(data[x].unique())
     width = max(width, idx_size*15)
 
-    g = BokehFacetGrid(data=data, hue=x, row=row, col=col, width=width,
+    g = BokehFacetGrid(data=data, hue=x, row='variable', col=col, width=width,
                        outdir=Path(output).parent)
-    g.map(boxplot, x='variable', y='value', tooltips=top_otu.columns)
+    g.map(boxplot, x=row, y='value', tooltips=top_otu.columns)
     g.map(swarmplot, x='variable', y='value', tooltips=metadata.columns)
     g.save(Path(output).name)
 
 
 def ldavis_show(metagenome, sample_probs, otu_probs, output=None):
+    import pyLDAvis
 
     taxa_info = (metagenome.taxonomy
                  .data.loc[metagenome.abundance.columns, ['Class', 'Genus']]
@@ -112,16 +112,35 @@ def sample_topics_clustermap(metagenome, topics, output='sample_topics_clusterma
 
 def otu_topics_clustermap(metagenome, topics, output='otu_topics_clustermap.html',
                           col=None, row=None, **kwargs):
-    top_otus = topics.index[topics.max(axis=1) > 0.01]
+    top_otus = set()
+    for topic in topics.index:
+        top_otus |= set(topics.loc[topic].nlargest(10).index)
+    # top_otus = topics.columns[topics.max(axis=0) > 0.01]
     
-    tax = metagenome.taxonomy.data.drop(columns='Species')
-    data = (pd.concat([topics, tax], axis=1).loc[top_otus]
-            .rename_axis(index='otus')
-            .reset_index())
-
-    data = data.melt(id_vars=list(tax.columns) + ['otus'],
-                     var_name='topics', value_name='weight')
-
+    data = (
+        topics[top_otus].stack().rename('weight').reset_index()
+        .merge(metagenome.taxonomy.data, left_on='OTU', right_index=True, how='left')
+        .reset_index(drop=True)
+    )
     g = BokehFacetGrid(data=data, outdir=Path(output).parent, row=row, col=col)
-    g.map(clustermap, x='topics', y='otus', z='weight', standardize=False)
+    g.map(clustermap, x='community', y='OTU', z='weight', standardize=True)
     g.save(Path(output).name)
+
+def otu_topics_barplot(metagenome, topics, output='otu_topics_clustermap.html',
+                       col=None, row=None, **kwargs):
+    # top_otus = set()
+    # for topic in topics.index:
+    #     top_otus |= set(topics.loc[topic].nlargest(10).index)
+    # top_otus = topics.columns[topics.max(axis=0) > 0.01]
+
+    data = (
+        topics.stack().where(lambda x: x>0.01).dropna()
+        .rename('weight').reset_index()
+        .merge(metagenome.taxonomy.data, left_on='OTU', right_index=True, how='left')
+        .reset_index(drop=True)
+        .sort_values(by='weight', ascending=False)
+    )
+    g = BokehFacetGrid(data=data, outdir=Path(output).parent, row=row, col='community', sort=False)
+    g.map(barplot, x='OTU', y='weight', tooltips=metagenome.taxonomy.columns)
+    g.save(Path(output).name)
+    

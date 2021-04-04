@@ -12,30 +12,28 @@ from ecotools.util import filter_groups
 CFG = parse_config()['bokeh']
 
 
-def barplot(x=None, y=None, data=None, stacked=False, width=500, height=500,
+def barplot(x=None, y=None, data=None, stacked=False, width=500, height=500, hue_order=None,
             p=None, **plot_kw):
 
-    grouped = data.groupby(x)
+    grouped = data.groupby(x, sort=False)
     x_values = list(grouped.groups.keys())
+    metadata = grouped.pipe(filter_groups, approx=True)
 
     if p is None:
         p = figure(x_range=FactorRange(*x_values), width=width, height=height,
                    x_axis_label=x[0], y_axis_label=y)
 
-    data = {
-        'x': x_values,
-        'y': grouped[y].agg('mean'),
-    }
+    data = dict(x=x_values, y=grouped[y].agg('mean'))
+    data.update({col: metadata[col] for col in metadata.columns})
 
     if len(x) > 1:
         data['color'] = grouped['color'].nth(0, dropna='all') 
         data[x[1]] = grouped[x[1]].nth(0, dropna='all') 
 
-    p.vbar(x='x', top='y', width=0.9, source=data, **plot_kw)
+    p.vbar(x='x', top='y', width=0.9, line_color='black', source=data, **plot_kw)
     p.xaxis.major_label_orientation = "vertical"
 
     return p
-
 
 def stackplot(x=None, y=None, data=None, width=1000, height=800, norm=True,
               hue_order=None, p=None,
